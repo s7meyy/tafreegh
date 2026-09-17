@@ -8,7 +8,7 @@ import { getRedis } from "./redis";
  * الفصل مقصود: التفريغ يحدّه المزوّد، والتحضير يحدّه المعالج. طابور
  * واحد يجعل الأبطأ يخنق الأسرع.
  */
-export const STAGES = ["prepare", "transcribe", "review", "audit", "cleanup"] as const;
+export const STAGES = ["fetch", "prepare", "transcribe", "review", "audit", "cleanup"] as const;
 export type Stage = (typeof STAGES)[number];
 
 export interface PrepareJob {
@@ -42,6 +42,9 @@ export function queueFor(stage: Stage): Queue {
 export function concurrencyFor(stage: Stage): number {
   const e = env();
   switch (stage) {
+    case "fetch":
+      // التنزيل يحدّه النطاق لا المعالج، وتوازٍ كثيف يستدعي حجب الخادم.
+      return 2;
     case "prepare":
       return e.CONCURRENCY_PREPARE;
     case "transcribe":
@@ -56,6 +59,10 @@ export function concurrencyFor(stage: Stage): number {
 }
 
 /** إدراج مقطع في أول الخط. الاسم يمنع ازدواج المهمة للمقطع نفسه. */
+export async function enqueueFetch(itemId: string): Promise<void> {
+  await queueFor("fetch").add("fetch", { itemId }, { jobId: `fetch:${itemId}` });
+}
+
 export async function enqueuePrepare(itemId: string): Promise<void> {
   await queueFor("prepare").add("prepare", { itemId }, { jobId: `prepare:${itemId}` });
 }

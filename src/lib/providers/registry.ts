@@ -5,12 +5,17 @@ import { reserve } from "@/lib/quota";
 import type { TranscriptResult } from "@/lib/transcript/types";
 import { GeminiProvider } from "./gemini";
 import { GroqProvider } from "./groq";
+import { LocalWhisperProvider } from "./local";
 import { ProviderError, type TranscribeInput, type TranscriptionProvider } from "./types";
 
 export { QuotaExhaustedError } from "@/lib/errors";
 
+/**
+ * المحرّكات بترتيب الأفضلية. الأول هو المرجع في التوقيتات والثقة.
+ * المحلي آخرها: يعمل بلا حصة، فهو ملاذ لا خيار أول.
+ */
 export function transcriptionProviders(): TranscriptionProvider[] {
-  return [new GroqProvider(), new GeminiProvider()];
+  return [new GroqProvider(), new GeminiProvider(), new LocalWhisperProvider()];
 }
 
 /**

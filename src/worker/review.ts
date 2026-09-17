@@ -23,8 +23,13 @@ export async function reviewItem(itemId: string): Promise<void> {
     .limit(1);
   if (!project) throw new Error("المجلد غير موجود");
 
-  if (!isReviewConfigured()) {
-    throw new Error("لا مفتاح GEMINI_API_KEY — المراجعة تحتاجه.");
+  const local = project.profile === "local_only";
+  if (!isReviewConfigured(local)) {
+    throw new Error(
+      local
+        ? "وضع «مشروع خاص» يحتاج Ollama — اضبط OLLAMA_BASE_URL وشغّله."
+        : "لا مفتاح GEMINI_API_KEY — المراجعة تحتاجه.",
+    );
   }
 
   const produced = await db
@@ -63,6 +68,7 @@ export async function reviewItem(itemId: string): Promise<void> {
     disagreements,
     glossary: terms.map((t) => t.term),
     mode: project.transcriptionMode,
+    local,
   });
 
   await db
@@ -74,7 +80,7 @@ export async function reviewItem(itemId: string): Promise<void> {
     {
       itemId,
       stage: "review",
-      engine: "gemini",
+      engine: local ? "ollama" : "gemini",
       model: "review",
       text: output.reviewedText,
       wordsJson: null,
@@ -83,7 +89,7 @@ export async function reviewItem(itemId: string): Promise<void> {
     {
       itemId,
       stage: "audit",
-      engine: "gemini",
+      engine: local ? "ollama" : "gemini",
       model: "audit",
       text: output.auditedText,
       wordsJson: null,

@@ -21,6 +21,8 @@ export interface ReviewInput {
   disagreements: readonly DiffSpan[];
   glossary: readonly string[];
   mode: TranscriptionMode;
+  /** وضع «مشروع خاص»: لا يخرج النصّ من الخادم */
+  local?: boolean;
 }
 
 export interface ReviewOutput {
@@ -49,6 +51,7 @@ export async function reviewTranscript(input: ReviewInput): Promise<ReviewOutput
     evidence,
     glossary: input.glossary,
     mode: input.mode,
+    local: input.local,
   });
 
   const guardOptions = { glossary: input.glossary, evidence };
@@ -56,7 +59,11 @@ export async function reviewTranscript(input: ReviewInput): Promise<ReviewOutput
 
   // التدقيق يحكم على ما نجا من الحارس وحده؛ الحكم على تعديل مرفوض
   // سلفًا إنفاقٌ للحصة بلا أثر.
-  const verdicts = await auditEdits({ paragraphs, edits: stage2.applied });
+  const verdicts = await auditEdits({
+    paragraphs,
+    edits: stage2.applied,
+    local: input.local,
+  });
   const finalEdits = applyVerdicts(stage2.applied, verdicts);
 
   const stage3 = applyEdits(paragraphs, finalEdits, guardOptions);

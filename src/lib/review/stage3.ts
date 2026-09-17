@@ -68,6 +68,7 @@ const payloadSchema = z.object({
 export interface Stage3Input {
   paragraphs: readonly string[];
   edits: readonly ProposedEdit[];
+  local?: boolean;
 }
 
 export async function auditEdits(input: Stage3Input): Promise<EditVerdict[]> {
@@ -93,6 +94,7 @@ export async function auditEdits(input: Stage3Input): Promise<EditVerdict[]> {
 
   const verdicts = await callReview({
     tier: "audit",
+    local: input.local,
     system: SYSTEM,
     user,
     schema: responseSchema,

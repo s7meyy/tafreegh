@@ -8,7 +8,8 @@ import { toDocx } from "@/lib/export/docx";
 import { toSrt, toVtt } from "@/lib/export/subtitles";
 import { safeFilename, toMarkdown, toTxt, type ExportMeta } from "@/lib/export/text";
 import { bestText, loadItem, timedWords } from "@/lib/items";
-import { getCurrentUser } from "@/lib/session";
+import { unauthorized } from "@/lib/api";
+import { requireApiUser } from "@/lib/session";
 
 const FORMATS = ["txt", "md", "docx", "srt", "vtt"] as const;
 type Format = (typeof FORMATS)[number];
@@ -30,7 +31,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: projectId } = await params;
-  const user = await getCurrentUser();
+  const user = await requireApiUser();
+  if (!user) return unauthorized();
 
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {

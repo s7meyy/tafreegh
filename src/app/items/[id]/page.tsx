@@ -8,7 +8,7 @@ import {
   itemStatusTone,
   transcriptionModeLabel,
 } from "@/lib/labels";
-import { getCurrentUser } from "@/lib/session";
+import { requireUser } from "@/lib/session";
 import { ApprovalEditor } from "@/components/approval-editor";
 import { ExportButtons } from "@/components/export-buttons";
 
@@ -20,7 +20,7 @@ export default async function ItemPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const user = await getCurrentUser();
+  const user = await requireUser();
 
   const loaded = await loadItem(id, user.id);
   if (!loaded) notFound();

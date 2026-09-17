@@ -9,6 +9,14 @@ const schema = z.object({
   REDIS_URL: z.string().url().default("redis://localhost:6379"),
   STORAGE_DIR: z.string().default("./storage"),
 
+  /**
+   * سرّ توقيع الجلسات. تغييره يُبطل كل الجلسات القائمة.
+   * الفشل هنا مقصود: موقع بلا سرّ موقع بلا حماية.
+   */
+  AUTH_SECRET: z
+    .string()
+    .min(32, "AUTH_SECRET يجب ألا يقل عن 32 حرفًا — ولّده بـ: openssl rand -base64 32"),
+
   GROQ_API_KEY: z.string().optional(),
   GROQ_ASR_MODEL: z.string().default("whisper-large-v3"),
 
@@ -19,6 +27,10 @@ const schema = z.object({
 
   OLLAMA_BASE_URL: z.string().default("http://localhost:11434"),
   OLLAMA_MODEL: z.string().default("qwen3:8b"),
+
+  /** التفريغ المحلي لوضع «مشروع خاص». فارغ = معطّل. */
+  LOCAL_ASR_COMMAND: z.string().optional(),
+  LOCAL_ASR_MODEL: z.string().default("large-v3"),
 
   CONCURRENCY_PREPARE: z.coerce.number().int().positive().default(2),
   CONCURRENCY_TRANSCRIBE: z.coerce.number().int().positive().default(4),

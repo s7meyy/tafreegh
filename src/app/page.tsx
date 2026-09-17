@@ -4,13 +4,13 @@ import { db } from "@/db";
 import { items, projects } from "@/db/schema";
 import { formatCount, formatDuration } from "@/lib/format";
 import { transcriptionModeLabel } from "@/lib/labels";
-import { getCurrentUser } from "@/lib/session";
+import { requireUser } from "@/lib/session";
 import { NewProjectForm } from "@/components/new-project-form";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProjectsPage() {
-  const user = await getCurrentUser();
+  const user = await requireUser();
 
   const rows = await db
     .select({

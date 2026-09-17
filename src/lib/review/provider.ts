@@ -23,6 +23,8 @@ export interface ReviewCall<T> {
   /** مخطط JSON الذي يلتزم به المخرَج */
   schema: Record<string, unknown>;
   parse: (value: unknown) => T;
+  /** وضع «مشروع خاص»: لا يخرج النصّ من الخادم */
+  local?: boolean;
 }
 
 function modelFor(tier: ReviewTier): { model: string; quotaKey: string } {
@@ -32,11 +34,13 @@ function modelFor(tier: ReviewTier): { model: string; quotaKey: string } {
     : { model: e.GEMINI_REVIEW_MODEL, quotaKey: "gemini" };
 }
 
-export function isReviewConfigured(): boolean {
-  return Boolean(env().GEMINI_API_KEY);
+export function isReviewConfigured(local = false): boolean {
+  return local ? Boolean(env().OLLAMA_BASE_URL) : Boolean(env().GEMINI_API_KEY);
 }
 
 export async function callReview<T>(call: ReviewCall<T>): Promise<T> {
+  if (call.local) return callOllama(call);
+
   const apiKey = env().GEMINI_API_KEY;
   if (!apiKey) {
     throw new ProviderError("مفتاح GEMINI_API_KEY غير مضبوط", {
@@ -99,6 +103,59 @@ export async function callReview<T>(call: ReviewCall<T>): Promise<T> {
   } catch (err) {
     if (!(err instanceof ProviderError)) await decision.release();
     throw err;
+  }
+}
+
+/**
+ * المراجعة المحلية عبر Ollama — نظير `LocalWhisperProvider` في النصّ.
+ * بلا حصة تُحجز: المورد هنا معالجك لا سياسة مزوّد.
+ */
+async function callOllama<T>(call: ReviewCall<T>): Promise<T> {
+  const { OLLAMA_BASE_URL: base, OLLAMA_MODEL: model } = env();
+
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        format: call.schema,
+        options: { temperature: 0.2 },
+        messages: [
+          { role: "system", content: call.system },
+          { role: "user", content: call.user },
+        ],
+      }),
+    });
+  } catch {
+    throw new ProviderError(
+      `تعذّر الاتصال بـ Ollama على ${base}. شغّله أو أطفئ وضع «مشروع خاص».`,
+      { provider: "ollama", retryable: true },
+    );
+  }
+
+  if (!res.ok) throw await toProviderError(res, "ollama");
+
+  const body = (await res.json()) as { message?: { content?: string } };
+  const raw = body.message?.content;
+
+  if (!raw?.trim()) {
+    throw new ProviderError("لم يُعد Ollama مخرَجًا", {
+      provider: "ollama",
+      retryable: true,
+    });
+  }
+
+  try {
+    return call.parse(JSON.parse(raw));
+  } catch {
+    // النماذج المحلية أضعف التزامًا بالمخطط من المزوّدين الكبار.
+    throw new ProviderError(
+      `مخرَج غير صالح من ${model}. جرّب نموذجًا أكبر في OLLAMA_MODEL.`,
+      { provider: "ollama", retryable: true },
+    );
   }
 }
 

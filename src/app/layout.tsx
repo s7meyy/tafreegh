@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { SignOutButton } from "@/components/sign-out-button";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -36,10 +37,11 @@ export default function RootLayout({
             >
               تفريغ
             </Link>
-            <nav className="flex items-center gap-1 text-sm">
+            <nav className="flex flex-1 items-center gap-1 text-sm">
               <NavLink href="/">المجلدات</NavLink>
               <NavLink href="/jobs">المهام والحصص</NavLink>
             </nav>
+            <SignOutButton />
           </div>
         </header>
 

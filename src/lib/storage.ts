@@ -26,6 +26,10 @@ export function isAcceptedMedia(type: string, filename: string): boolean {
 }
 
 /** مجلد الوسائط لمقطع واحد، داخل STORAGE_DIR. */
+export function itemMediaDir(itemId: string): string {
+  return itemDir(itemId);
+}
+
 function itemDir(itemId: string): string {
   const root = resolve(env().STORAGE_DIR);
   const dir = resolve(join(root, "items", itemId));

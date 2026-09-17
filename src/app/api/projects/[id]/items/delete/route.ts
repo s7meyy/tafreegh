@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { items, projects } from "@/db/schema";
-import { getCurrentUser } from "@/lib/session";
+import { unauthorized } from "@/lib/api";
+import { requireApiUser } from "@/lib/session";
 import { deleteItemMedia } from "@/lib/storage";
 
 const schema = z.object({
@@ -21,7 +22,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: projectId } = await params;
-  const user = await getCurrentUser();
+  const user = await requireApiUser();
+  if (!user) return unauthorized();
 
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {

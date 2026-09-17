@@ -1,39 +1,49 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { users } from "@/db/schema";
+import { SESSION_COOKIE, readSession } from "./auth";
 
 /**
- * المستخدم الحالي.
+ * المستخدم الحالي من كوكي الجلسة.
  *
- * تسجيل الدخول مؤجّل إلى م6 (§9 من الخطة). إلى حينها يعمل الموقع
- * بمستخدم محلي واحد يُنشأ عند الحاجة. كل الاستعلامات مقيّدة بـ
- * `userId` منذ الآن، فإضافة الدخول لاحقًا لن تمسّ طبقة البيانات.
+ * كل استعلام في المشروع مقيّد بـ `userId` المعاد من هنا، فالعزل في
+ * طبقة البيانات لا في الواجهة — ولا يكشفه خطأ في مسار جديد.
  */
-const LOCAL_EMAIL = "local@tafreegh.local";
-
 export async function getCurrentUser() {
-  const existing = await db
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  const session = readSession(token);
+  if (!session) return null;
+
+  const [user] = await db
     .select()
     .from(users)
-    .where(eq(users.email, LOCAL_EMAIL))
+    .where(eq(users.id, session.userId))
     .limit(1);
 
-  if (existing[0]) return existing[0];
+  return user ?? null;
+}
 
-  const [created] = await db
-    .insert(users)
-    .values({ email: LOCAL_EMAIL, name: "المستخدم المحلي" })
-    .onConflictDoNothing()
-    .returning();
+/**
+ * المستخدم أو إعادة توجيه. تُستعمل في الصفحات.
+ * بلا حسابات بعد، توجّه إلى الإعداد لا إلى الدخول.
+ */
+export async function requireUser() {
+  const user = await getCurrentUser();
+  if (user) return user;
 
-  if (created) return created;
+  redirect((await hasAnyUser()) ? "/login" : "/setup");
+}
 
-  // سباق بين طلبين متزامنين: الصف أُنشئ بالفعل، فنقرأه.
+/** المستخدم أو `null`. تُستعمل في مسارات API لتردّ 401 لا إعادة توجيه. */
+export async function requireApiUser() {
+  return getCurrentUser();
+}
+
+export async function hasAnyUser(): Promise<boolean> {
   const [row] = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, LOCAL_EMAIL))
-    .limit(1);
-  if (!row) throw new Error("تعذّر إنشاء المستخدم المحلي");
-  return row;
+    .select({ count: sql<number>`count(*)::int` })
+    .from(users);
+  return (row?.count ?? 0) > 0;
 }

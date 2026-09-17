@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { items, projects } from "@/db/schema";
 import { formatCount } from "@/lib/format";
 import { profileLabel, transcriptionModeLabel } from "@/lib/labels";
-import { getCurrentUser } from "@/lib/session";
+import { requireUser } from "@/lib/session";
 import { ItemList, type ItemRow } from "@/components/item-list";
 import { UploadPanel } from "@/components/upload-panel";
 
@@ -17,7 +17,7 @@ export default async function ProjectPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const user = await getCurrentUser();
+  const user = await requireUser();
 
   const [project] = await db
     .select()
@@ -49,7 +49,15 @@ export default async function ProjectPage({
         <Link href="/" className="text-sm text-ink-soft hover:text-brand">
           ← المجلدات
         </Link>
-        <h1 className="mt-2 text-2xl font-bold">{project.name}</h1>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-bold">{project.name}</h1>
+          <Link
+            href={`/projects/${project.id}/settings`}
+            className="flex min-h-11 items-center rounded-lg border border-line px-4 text-sm hover:border-brand"
+          >
+            الإعدادات والمسرد
+          </Link>
+        </div>
         <p className="mt-1 text-sm text-ink-soft">
           نمط {transcriptionModeLabel[project.transcriptionMode]} ·{" "}
           {profileLabel[project.profile]} ·{" "}

@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { projects } from "@/db/schema";
-import { getCurrentUser } from "@/lib/session";
+import { unauthorized } from "@/lib/api";
+import { requireApiUser } from "@/lib/session";
 import { isAcceptedMedia } from "@/lib/storage";
 import { CHUNK_BYTES, MAX_UPLOAD_BYTES, createSession } from "@/lib/upload-session";
 
@@ -16,7 +17,8 @@ const schema = z.object({
 
 /** فتح جلسة رفع. الملف نفسه يصل قطعًا على `PUT /api/uploads/[id]`. */
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
+  const user = await requireApiUser();
+  if (!user) return unauthorized();
 
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -47,6 +49,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "المجلد غير موجود" }, { status: 404 });
   }
 
-  const session = await createSession(projectId, filename, size);
+  const session = await createSession(user.id, projectId, filename, size);
   return NextResponse.json({ id: session.id, chunkBytes: CHUNK_BYTES }, { status: 201 });
 }

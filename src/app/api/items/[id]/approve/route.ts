@@ -6,7 +6,8 @@ import { auditLog, items, transcripts } from "@/db/schema";
 import { tidyOutput } from "@/lib/arabic";
 import { loadItem } from "@/lib/items";
 import { enqueueCleanup } from "@/lib/queue";
-import { getCurrentUser } from "@/lib/session";
+import { unauthorized } from "@/lib/api";
+import { requireApiUser } from "@/lib/session";
 
 const schema = z.object({
   /** نصّ المستخدم بعد تحريره؛ إن غاب اعتُمد نصّ التدقيق كما هو */
@@ -25,7 +26,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const user = await getCurrentUser();
+  const user = await requireApiUser();
+  if (!user) return unauthorized();
 
   const loaded = await loadItem(id, user.id);
   if (!loaded) {

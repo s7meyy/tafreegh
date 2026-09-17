@@ -3,25 +3,54 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { auditLog, items, projects } from "@/db/schema";
 import { enqueuePrepare } from "@/lib/queue";
-import { getCurrentUser } from "@/lib/session";
+import { forbidden, unauthorized } from "@/lib/api";
+import { requireApiUser } from "@/lib/session";
 import { adoptUpload } from "@/lib/storage";
 import {
   appendChunk,
   discardSession,
   finishSession,
   getSession,
+  type UploadSession,
 } from "@/lib/upload-session";
+
+/**
+ * جلسة يملكها المستخدم الحالي، أو ردّ خطأ.
+ *
+ * التحقق في **كل** قطعة لا عند الفتح وحده: معرّف الجلسة يسافر في
+ * الرابط، ولو اكتفينا بفحصه عند الفتح لكفى تسرّبه ليكتب غيرُ صاحبه
+ * في ملفه.
+ */
+async function ownedSession(id: string) {
+  const user = await requireApiUser();
+  if (!user) return { error: unauthorized() } as const;
+
+  const session = await getSession(id);
+  if (!session) {
+    return {
+      error: NextResponse.json(
+        { error: "الجلسة منتهية أو غير موجودة" },
+        { status: 404 },
+      ),
+    } as const;
+  }
+  if (session.userId !== user.id) return { error: forbidden() } as const;
+
+  return { user, session } as const;
+}
 
 /** حالة الجلسة — يسألها العميل ليستأنف من حيث انقطع. */
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const session = await getSession((await params).id);
-  if (!session) {
-    return NextResponse.json({ error: "الجلسة منتهية أو غير موجودة" }, { status: 404 });
-  }
-  return NextResponse.json({ received: session.received, size: session.size });
+  const owned = await ownedSession((await params).id);
+  if ("error" in owned) return owned.error;
+
+  return NextResponse.json({
+    received: owned.session.received,
+    size: owned.session.size,
+  });
 }
 
 /**
@@ -35,10 +64,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const session = await getSession(id);
-  if (!session) {
-    return NextResponse.json({ error: "الجلسة منتهية أو غير موجودة" }, { status: 404 });
-  }
+  const owned = await ownedSession(id);
+  if ("error" in owned) return owned.error;
+  const { session, user } = owned;
 
   const offset = Number(new URL(request.url).searchParams.get("offset"));
   if (!Number.isInteger(offset) || offset < 0) {
@@ -63,7 +91,7 @@ export async function PUT(
     return NextResponse.json({ received: result.received, complete: false });
   }
 
-  return complete(id);
+  return complete(session, user.id);
 }
 
 /** إلغاء الرفع وحذف الملف الجزئي. */
@@ -71,26 +99,23 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  await discardSession((await params).id);
+  const owned = await ownedSession((await params).id);
+  if ("error" in owned) return owned.error;
+
+  await discardSession(owned.session.id);
   return NextResponse.json({ ok: true });
 }
 
 /** آخر قطعة وصلت: نُنشئ المقطع وندفعه إلى الخط. */
-async function complete(id: string) {
-  const user = await getCurrentUser();
-  const session = await getSession(id);
-  if (!session) {
-    return NextResponse.json({ error: "الجلسة منتهية" }, { status: 404 });
-  }
-
+async function complete(session: UploadSession, userId: string) {
   const [project] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, session.projectId), eq(projects.userId, user.id)))
+    .where(and(eq(projects.id, session.projectId), eq(projects.userId, userId)))
     .limit(1);
 
   if (!project) {
-    await discardSession(id);
+    await discardSession(session.id);
     return NextResponse.json({ error: "المجلد غير موجود" }, { status: 404 });
   }
 

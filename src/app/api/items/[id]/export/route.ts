@@ -3,7 +3,8 @@ import { toDocx } from "@/lib/export/docx";
 import { toSrt, toVtt } from "@/lib/export/subtitles";
 import { safeFilename, toMarkdown, toTxt, type ExportMeta } from "@/lib/export/text";
 import { bestText, loadItem, timedWords } from "@/lib/items";
-import { getCurrentUser } from "@/lib/session";
+import { unauthorized } from "@/lib/api";
+import { requireApiUser } from "@/lib/session";
 
 const FORMATS = ["txt", "md", "docx", "srt", "vtt"] as const;
 type Format = (typeof FORMATS)[number];
@@ -30,7 +31,8 @@ export async function GET(
     );
   }
 
-  const user = await getCurrentUser();
+  const user = await requireApiUser();
+  if (!user) return unauthorized();
   const loaded = await loadItem(id, user.id);
   if (!loaded) {
     return NextResponse.json({ error: "المقطع غير موجود" }, { status: 404 });

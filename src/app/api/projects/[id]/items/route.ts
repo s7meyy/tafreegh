@@ -3,7 +3,9 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { items, projects } from "@/db/schema";
 import { env } from "@/lib/env";
-import { getCurrentUser } from "@/lib/session";
+import { unauthorized } from "@/lib/api";
+import { enqueueFetch } from "@/lib/queue";
+import { requireApiUser } from "@/lib/session";
 
 type Result =
   | { filename: string; ok: true; itemId: string }
@@ -20,7 +22,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: projectId } = await params;
-  const user = await getCurrentUser();
+  const user = await requireApiUser();
+  if (!user) return unauthorized();
 
   const [project] = await db
     .select()
@@ -77,5 +80,7 @@ async function addYoutube(projectId: string, url: string): Promise<Result> {
     .returning();
 
   if (!item) return { filename: url, ok: false, error: "تعذّر حفظ الرابط." };
+
+  await enqueueFetch(item.id);
   return { filename: url, ok: true, itemId: item.id };
 }

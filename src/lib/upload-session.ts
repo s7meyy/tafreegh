@@ -24,6 +24,8 @@ const TTL_SEC = 24 * 3600;
 
 export interface UploadSession {
   id: string;
+  /** صاحب الجلسة — يُتحقّق منه في كل قطعة، لا عند الفتح وحده */
+  userId: string;
   projectId: string;
   filename: string;
   size: number;
@@ -43,12 +45,14 @@ function partialPath(id: string): string {
 }
 
 export async function createSession(
+  userId: string,
   projectId: string,
   filename: string,
   size: number,
 ): Promise<UploadSession> {
   const session: UploadSession = {
     id: randomUUID(),
+    userId,
     projectId,
     filename,
     size,

@@ -85,6 +85,8 @@ export interface Stage2Input {
   evidence: readonly EvidenceSpan[];
   glossary: readonly string[];
   mode: TranscriptionMode;
+  /** وضع «مشروع خاص»: المراجعة محليًا */
+  local?: boolean;
 }
 
 export async function proposeEdits(input: Stage2Input): Promise<ProposedEdit[]> {
@@ -108,6 +110,7 @@ export async function proposeEdits(input: Stage2Input): Promise<ProposedEdit[]> 
 
   return callReview({
     tier: "review",
+    local: input.local,
     system: SYSTEM,
     user: sections.join("\n"),
     schema: responseSchema,

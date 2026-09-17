@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { projects } from "@/db/schema";
-import { getCurrentUser } from "@/lib/session";
+import { unauthorized } from "@/lib/api";
+import { requireApiUser } from "@/lib/session";
 
 const createSchema = z.object({
   name: z.string().trim().min(1, "الاسم مطلوب").max(120),
@@ -12,7 +13,8 @@ const createSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
+  const user = await requireApiUser();
+  if (!user) return unauthorized();
 
   const parsed = createSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {

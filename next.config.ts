@@ -2,10 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  experimental: {
-    // رفع الملفات الكبيرة يمر عبر مسار مخصّص لا عبر Server Actions
-    serverActions: { bodySizeLimit: "2mb" },
-  },
+  /**
+   * BullMQ يستورد عملاء Redis بديلين اختياريين، فيحاول المحزّم حلّها
+   * ويحذّر. وهو يعمل على الخادم فقط أصلًا، فلا داعي لحزمه.
+   */
+  serverExternalPackages: ["bullmq", "ioredis"],
 };
 
 export default nextConfig;

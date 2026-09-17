@@ -15,6 +15,13 @@
       "when": 1789631115473,
       "tag": "0001_optimal_jocasta",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789632067406,
+      "tag": "0002_puzzling_amazoness",
+      "breakpoints": true
     }
   ]
 }
