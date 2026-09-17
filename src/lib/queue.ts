@@ -67,3 +67,7 @@ export async function enqueueTranscribe(itemId: string): Promise<void> {
     { jobId: `transcribe:${itemId}` },
   );
 }
+
+export async function enqueueReview(itemId: string): Promise<void> {
+  await queueFor("review").add("review", { itemId }, { jobId: `review:${itemId}` });
+}

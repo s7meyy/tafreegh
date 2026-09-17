@@ -4,8 +4,10 @@ import { db } from "@/db";
 import { auditLog, glossary, items, projects, segments, transcripts } from "@/db/schema";
 import { tidyOutput } from "@/lib/arabic";
 import { extractSegment, readAndDiscard } from "@/lib/media/ffmpeg";
-import { QuotaExhaustedError, providersFor, runProvider } from "@/lib/providers/registry";
+import { QuotaExhaustedError } from "@/lib/errors";
+import { providersFor, runProvider } from "@/lib/providers/registry";
 import type { TranscriptionProvider } from "@/lib/providers/types";
+import { enqueueReview } from "@/lib/queue";
 import { diffTranscripts, disagreementRate } from "@/lib/transcript/diff";
 import { mergeSegments, wordsToText, type SegmentTranscript } from "@/lib/transcript/merge";
 import type { TranscriptResult, Word } from "@/lib/transcript/types";
@@ -139,13 +141,10 @@ export async function transcribeItem(itemId: string): Promise<void> {
 
   await db
     .update(items)
-    .set({
-      difficulty,
-      // المراجعة (م3) لم تُبنَ بعد؛ إلى حينها يقف المقطع عند الاعتماد.
-      status: "awaiting_approval",
-      currentStage: "review",
-    })
+    .set({ difficulty, status: "reviewing_1", currentStage: "review" })
     .where(eq(items.id, itemId));
+
+  await enqueueReview(itemId);
 }
 
 /**

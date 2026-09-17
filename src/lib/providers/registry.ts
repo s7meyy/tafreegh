@@ -1,21 +1,13 @@
 import { db } from "@/db";
 import { usage } from "@/db/schema";
+import { QuotaExhaustedError } from "@/lib/errors";
 import { reserve } from "@/lib/quota";
 import type { TranscriptResult } from "@/lib/transcript/types";
 import { GeminiProvider } from "./gemini";
 import { GroqProvider } from "./groq";
 import { ProviderError, type TranscribeInput, type TranscriptionProvider } from "./types";
 
-/** خطأ يعني: الحصة نفدت، أجّل المهمة ولا تعدّها فاشلة. */
-export class QuotaExhaustedError extends Error {
-  constructor(
-    readonly provider: string,
-    readonly retryAfterMs: number,
-  ) {
-    super(`نفدت حصة ${provider}؛ تُعاد المحاولة بعد ${Math.ceil(retryAfterMs / 1000)} ثانية`);
-    this.name = "QuotaExhaustedError";
-  }
-}
+export { QuotaExhaustedError } from "@/lib/errors";
 
 export function transcriptionProviders(): TranscriptionProvider[] {
   return [new GroqProvider(), new GeminiProvider()];

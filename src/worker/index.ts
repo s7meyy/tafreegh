@@ -2,10 +2,11 @@ import { Worker, type Job } from "bullmq";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { items } from "@/db/schema";
-import { QuotaExhaustedError } from "@/lib/providers/registry";
+import { QuotaExhaustedError } from "@/lib/errors";
 import { concurrencyFor, type Stage } from "@/lib/queue";
 import { getRedis } from "@/lib/redis";
 import { prepareItem } from "./prepare";
+import { reviewItem } from "./review";
 import { transcribeItem } from "./transcribe";
 
 /**
@@ -18,6 +19,7 @@ import { transcribeItem } from "./transcribe";
 const handlers: Partial<Record<Stage, (itemId: string) => Promise<void>>> = {
   prepare: prepareItem,
   transcribe: transcribeItem,
+  review: reviewItem,
 };
 
 function startWorker(stage: Stage, handle: (itemId: string) => Promise<void>) {

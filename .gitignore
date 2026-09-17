@@ -13,6 +13,11 @@ storage/
 tmp/
 *.log
 
+# ملفات صوت المجموعة المرجعية — ثقيلة وقد تكون خاصة.
+# النصوص المرجعية وحدها تُحفظ في المستودع.
+eval/audio/*
+!eval/audio/.gitkeep
+
 .DS_Store
 .vscode/
 .idea/
