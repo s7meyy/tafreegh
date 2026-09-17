@@ -3,13 +3,11 @@ import { db } from "@/db";
 import { items, jobs } from "@/db/schema";
 import { formatDate } from "@/lib/format";
 import { itemStatusLabel, itemStatusTone } from "@/lib/labels";
+import { QuotaPanel } from "@/components/quota-panel";
 
 export const dynamic = "force-dynamic";
 
-/**
- * لوحة المهام والحصص.
- * عرض الحصص المتبقية لكل مزوّد يُضاف في م1 مع متتبّع الحصص (§3.3).
- */
+/** لوحة المهام والحصص (§3.3). */
 export default async function JobsPage() {
   const active = await db
     .select({
@@ -39,6 +37,9 @@ export default async function JobsPage() {
         </p>
       </div>
 
+      <QuotaPanel />
+
+      <h2 className="font-semibold">المقاطع قيد العمل</h2>
       {pending.length === 0 ? (
         <p className="rounded-xl border border-dashed border-line bg-panel p-10 text-center text-ink-soft">
           لا مهام قيد العمل.

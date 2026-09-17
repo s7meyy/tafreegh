@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { auditLog, items, projects } from "@/db/schema";
 import { env } from "@/lib/env";
+import { enqueuePrepare } from "@/lib/queue";
 import { getCurrentUser } from "@/lib/session";
 import { MAX_UPLOAD_BYTES, isAcceptedMedia, saveMedia } from "@/lib/storage";
 
@@ -137,6 +138,8 @@ async function addUpload(projectId: string, file: File): Promise<Result> {
       actor: "user",
       detail: { filename, bytes: bytes.length },
     });
+
+    await enqueuePrepare(item.id);
 
     return {
       filename,

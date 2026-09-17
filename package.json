@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "worker": "tsx watch src/worker/index.ts",
+    "worker:start": "tsx src/worker/index.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -16,13 +18,16 @@
   },
   "dependencies": {
     "@t3-oss/env-nextjs": "^0.12.0",
+    "bullmq": "^6.3.6",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.38.4",
+    "ioredis": "^6.0.0",
     "next": "^15.1.6",
     "postgres": "^3.4.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^2.6.0",
+    "tsx": "^4.23.13",
     "zod": "^3.24.1"
   },
   "devDependencies": {
