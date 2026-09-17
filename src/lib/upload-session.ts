@@ -19,6 +19,8 @@ import { getRedis } from "./redis";
 export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 /** حجم القطعة الذي يرسله العميل. توازن بين عدد الطلبات وكلفة الإعادة. */
 export const CHUNK_BYTES = 8 * 1024 * 1024;
+/** سقف ما يقبله الخادم في الطلب الواحد — ضِعف الحجم المعتاد هامشًا. */
+export const MAX_CHUNK_BYTES = 2 * CHUNK_BYTES;
 /** الجلسة المهجورة تُنسى بعدها، وملفها الجزئي يُكنس. */
 const TTL_SEC = 24 * 3600;
 

@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.env
+.env.local
+storage
+backups
+eval/audio
+*.log
+docs

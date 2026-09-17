@@ -11,6 +11,7 @@ import {
   discardSession,
   finishSession,
   getSession,
+  MAX_CHUNK_BYTES,
   type UploadSession,
 } from "@/lib/upload-session";
 
@@ -73,9 +74,31 @@ export async function PUT(
     return NextResponse.json({ error: "إزاحة غير صالحة" }, { status: 400 });
   }
 
+  /**
+   * سقف حجم القطعة قبل قراءتها.
+   *
+   * `arrayBuffer()` تقرأ الجسم كاملًا في الذاكرة. بلا سقف، طلبٌ واحد
+   * بجسم ضخم يُنهك ذاكرة الخادم — والسقف هنا هو ما يجعل «الذاكرة تحمل
+   * قطعة واحدة» صحيحًا لا مجرد نيّة.
+   */
+  const declared = Number(request.headers.get("content-length") ?? 0);
+  if (declared > MAX_CHUNK_BYTES) {
+    return NextResponse.json(
+      { error: "القطعة أكبر من المسموح.", received: session.received },
+      { status: 413 },
+    );
+  }
+
   const chunk = Buffer.from(await request.arrayBuffer());
   if (chunk.length === 0) {
     return NextResponse.json({ error: "قطعة فارغة" }, { status: 400 });
+  }
+  // الترويسة قد تكذب أو تغيب (نقل مقطّع)، فالفحص يتكرر على الحجم الفعلي.
+  if (chunk.length > MAX_CHUNK_BYTES) {
+    return NextResponse.json(
+      { error: "القطعة أكبر من المسموح.", received: session.received },
+      { status: 413 },
+    );
   }
 
   const result = await appendChunk(session, offset, chunk);

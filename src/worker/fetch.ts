@@ -86,7 +86,16 @@ async function probeUrl(url: string): Promise<UrlInfo> {
   try {
     const { stdout } = await run(
       "yt-dlp",
-      ["--no-playlist", "--skip-download", "--print", "%(title)s\n%(duration)s", url],
+      [
+        "--no-playlist",
+        "--skip-download",
+        "--print",
+        "%(title)s\n%(duration)s",
+        // `--` يمنع تفسير أي رابط على أنه راية، دفاعًا في العمق فوق
+        // التحقق من صيغة الرابط عند الإدخال.
+        "--",
+        url,
+      ],
       { timeout: 120_000, maxBuffer: 8 * 1024 * 1024 },
     );
 
@@ -116,6 +125,7 @@ async function download(url: string, dir: string): Promise<void> {
         "--no-progress",
         "-o",
         join(dir, "download.%(ext)s"),
+        "--",
         url,
       ],
       { timeout: TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 },

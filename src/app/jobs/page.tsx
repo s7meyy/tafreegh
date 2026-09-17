@@ -1,15 +1,27 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { items, jobs } from "@/db/schema";
+import { items, jobs, projects } from "@/db/schema";
 import { formatDate } from "@/lib/format";
 import { itemStatusLabel, itemStatusTone } from "@/lib/labels";
+import { requireUser } from "@/lib/session";
 import { QuotaPanel } from "@/components/quota-panel";
 
 export const dynamic = "force-dynamic";
 
+/** حالات لا تنتظر شيئًا، فلا مكان لها في لوحة المهام. */
+const SETTLED: ("approved" | "archived" | "canceled")[] = [
+  "approved",
+  "archived",
+  "canceled",
+];
+
 /** لوحة المهام والحصص (§3.3). */
 export default async function JobsPage() {
-  const active = await db
+  const user = await requireUser();
+
+  // الترشيح في الاستعلام لا بعده: الترشيح في JavaScript بعد `limit`
+  // كان يعني أن خمسين مقطعًا معتمدًا يُخفون كل ما ينتظر فعلًا.
+  const pending = await db
     .select({
       id: items.id,
       title: items.title,
@@ -19,14 +31,12 @@ export default async function JobsPage() {
       failedJobs: sql<number>`count(*) filter (where ${jobs.state} = 'failed')::int`,
     })
     .from(items)
+    .innerJoin(projects, eq(projects.id, items.projectId))
     .leftJoin(jobs, eq(jobs.itemId, items.id))
+    .where(and(eq(projects.userId, user.id), notInArray(items.status, SETTLED)))
     .groupBy(items.id)
     .orderBy(desc(items.createdAt))
     .limit(50);
-
-  const pending = active.filter(
-    (i) => !["approved", "archived", "canceled"].includes(i.status),
-  );
 
   return (
     <div className="space-y-6">

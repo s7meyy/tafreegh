@@ -11,6 +11,7 @@ import {
   validatePassword,
   verifyPassword,
 } from "@/lib/auth";
+import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { hasAnyUser } from "@/lib/session";
 
 const credentials = z.object({
@@ -21,7 +22,30 @@ const credentials = z.object({
   action: z.enum(["login", "setup"]).default("login"),
 });
 
+/** عشر محاولات في الربع ساعة لكل عنوان. */
+const ATTEMPT_LIMIT = 10;
+const ATTEMPT_WINDOW_SEC = 900;
+
 export async function POST(request: Request) {
+  // الحدّ قبل قراءة الجسم وقبل scrypt: كلاهما يكلّف، والغرض ألا يكلّف
+  // المهاجمُ الخادمَ شيئًا.
+  const limited = await rateLimit(
+    `auth:${clientKey(request)}`,
+    ATTEMPT_LIMIT,
+    ATTEMPT_WINDOW_SEC,
+  );
+
+  if (!limited.ok) {
+    const minutes = Math.ceil(limited.retryAfterMs / 60_000);
+    return NextResponse.json(
+      { error: `محاولات كثيرة. انتظر ${minutes} دقيقة ثم أعد المحاولة.` },
+      {
+        status: 429,
+        headers: { "retry-after": String(Math.ceil(limited.retryAfterMs / 1000)) },
+      },
+    );
+  }
+
   const parsed = credentials.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(

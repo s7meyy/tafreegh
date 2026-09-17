@@ -1,0 +1,87 @@
+# الإنتاج على خادم واحد (§4.1 من الخطة).
+#
+#   cp .env.example .env    ثم املأ AUTH_SECRET والمفاتيح و DOMAIN
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml run --rm web npm run db:migrate
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tafreegh
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?اضبط POSTGRES_PASSWORD}
+      POSTGRES_DB: tafreegh
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tafreegh"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # لا منفذ منشور: القاعدة لا تُرى إلا من شبكة compose.
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://tafreegh:${POSTGRES_PASSWORD}@db:5432/tafreegh
+      REDIS_URL: redis://redis:6379
+      STORAGE_DIR: /data/storage
+    volumes:
+      - media:/data/storage
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["npm", "run", "worker:start"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://tafreegh:${POSTGRES_PASSWORD}@db:5432/tafreegh
+      REDIS_URL: redis://redis:6379
+      STORAGE_DIR: /data/storage
+    volumes:
+      # نفس الحجم الذي يكتب فيه الويب: الرفع يصل إلى الويب والمعالجة
+      # تجري في العامل، فلا بد أن يريا القرص نفسه.
+      - media:/data/storage
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?اضبط DOMAIN باسم نطاقك}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+volumes:
+  db_data:
+  redis_data:
+  media:
+  caddy_data:
+  caddy_config:

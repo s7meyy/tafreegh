@@ -31,7 +31,8 @@ npm run dev      # الواجهة
 npm run worker   # في طرفية أخرى — المعالجة
 ```
 
-التفاصيل في **[`docs/DEV.md`](docs/DEV.md)**.
+التفاصيل في **[`docs/DEV.md`](docs/DEV.md)**، والنشر على خادم في
+**[`docs/DEPLOY.md`](docs/DEPLOY.md)**.
 
 ## الخطة
 
