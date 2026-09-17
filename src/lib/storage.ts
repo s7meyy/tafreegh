@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, rm, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { env } from "./env";
 
@@ -62,4 +62,12 @@ export async function deleteMedia(path: string): Promise<void> {
     // الملف محذوف سلفًا — هذا نجاح لا فشل.
     if (err.code !== "ENOENT") throw err;
   });
+}
+
+/**
+ * حذف كل وسائط مقطع: الأصل، والنسخة المطبّعة، وأي مقاطع فرعية بقيت.
+ * يُنادى بعد الاعتماد وبعد انقضاء مدة الاحتفاظ (§5 المرحلة 5).
+ */
+export async function deleteItemMedia(itemId: string): Promise<void> {
+  await rm(itemDir(itemId), { recursive: true, force: true });
 }

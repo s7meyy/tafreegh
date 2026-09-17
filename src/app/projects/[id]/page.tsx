@@ -62,7 +62,12 @@ export default async function ProjectPage({
           {rows.map((item) => (
             <li key={item.id} className="flex items-center gap-4 p-4">
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{item.title}</p>
+                <Link
+                  href={`/items/${item.id}`}
+                  className="block truncate font-medium hover:text-brand"
+                >
+                  {item.title}
+                </Link>
                 <p className="mt-0.5 text-sm text-ink-soft">
                   {formatDuration(item.durationSec)} ·{" "}
                   {formatDate(item.createdAt)}

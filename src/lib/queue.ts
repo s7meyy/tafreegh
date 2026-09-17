@@ -71,3 +71,12 @@ export async function enqueueTranscribe(itemId: string): Promise<void> {
 export async function enqueueReview(itemId: string): Promise<void> {
   await queueFor("review").add("review", { itemId }, { jobId: `review:${itemId}` });
 }
+
+export async function enqueueCleanup(itemId: string): Promise<void> {
+  await queueFor("cleanup").add(
+    "cleanup",
+    { itemId },
+    // نمهل قليلًا: قد يكون المستخدم ما زال يستمع بعد ضغط «اعتماد».
+    { jobId: `cleanup:${itemId}`, delay: 60_000 },
+  );
+}

@@ -5,6 +5,7 @@ import { items } from "@/db/schema";
 import { QuotaExhaustedError } from "@/lib/errors";
 import { concurrencyFor, type Stage } from "@/lib/queue";
 import { getRedis } from "@/lib/redis";
+import { cleanupItem, sweepExpiredMedia } from "./cleanup";
 import { prepareItem } from "./prepare";
 import { reviewItem } from "./review";
 import { transcribeItem } from "./transcribe";
@@ -20,7 +21,20 @@ const handlers: Partial<Record<Stage, (itemId: string) => Promise<void>>> = {
   prepare: prepareItem,
   transcribe: transcribeItem,
   review: reviewItem,
+  cleanup: cleanupItem,
 };
+
+/** كنس الوسائط المهجورة — كل ساعة، ومرة عند الإقلاع. */
+const SWEEP_INTERVAL_MS = 3_600_000;
+
+async function sweep() {
+  try {
+    const count = await sweepExpiredMedia();
+    if (count > 0) console.log(`[cleanup] حُذفت وسائط ${count} مقطعًا منتهي المدة`);
+  } catch (err) {
+    console.error("[cleanup] فشل الكنس الدوري:", err);
+  }
+}
 
 function startWorker(stage: Stage, handle: (itemId: string) => Promise<void>) {
   const worker = new Worker(
@@ -88,9 +102,13 @@ console.log(
   `عامل تفريغ يعمل — المراحل: ${Object.keys(handlers).join("، ")}`,
 );
 
+void sweep();
+const sweepTimer = setInterval(() => void sweep(), SWEEP_INTERVAL_MS);
+
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, async () => {
     console.log("إيقاف العامل…");
+    clearInterval(sweepTimer);
     // الإغلاق اللطيف ينتظر المهام الجارية، فلا تُقطع مهمة في منتصفها.
     await Promise.all(workers.map((w) => w.close()));
     process.exit(0);
