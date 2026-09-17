@@ -3,14 +3,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { items, projects } from "@/db/schema";
-import { formatCount, formatDate, formatDuration } from "@/lib/format";
-import {
-  itemStatusLabel,
-  itemStatusTone,
-  profileLabel,
-  transcriptionModeLabel,
-} from "@/lib/labels";
+import { formatCount } from "@/lib/format";
+import { profileLabel, transcriptionModeLabel } from "@/lib/labels";
 import { getCurrentUser } from "@/lib/session";
+import { ItemList, type ItemRow } from "@/components/item-list";
 import { UploadPanel } from "@/components/upload-panel";
 
 export const dynamic = "force-dynamic";
@@ -31,11 +27,21 @@ export default async function ProjectPage({
 
   if (!project) notFound();
 
-  const rows = await db
+  const found = await db
     .select()
     .from(items)
     .where(eq(items.projectId, project.id))
     .orderBy(desc(items.createdAt));
+
+  const rows: ItemRow[] = found.map((item) => ({
+    id: item.id,
+    title: item.title,
+    status: item.status,
+    durationSec: item.durationSec,
+    createdAt: item.createdAt.toISOString(),
+    mediaDeleted: Boolean(item.mediaDeletedAt),
+    errorMessage: item.errorMessage,
+  }));
 
   return (
     <div className="space-y-8">
@@ -58,35 +64,7 @@ export default async function ProjectPage({
           لا مقاطع في هذا المجلد بعد.
         </p>
       ) : (
-        <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
-          {rows.map((item) => (
-            <li key={item.id} className="flex items-center gap-4 p-4">
-              <div className="min-w-0 flex-1">
-                <Link
-                  href={`/items/${item.id}`}
-                  className="block truncate font-medium hover:text-brand"
-                >
-                  {item.title}
-                </Link>
-                <p className="mt-0.5 text-sm text-ink-soft">
-                  {formatDuration(item.durationSec)} ·{" "}
-                  {formatDate(item.createdAt)}
-                  {item.mediaDeletedAt && " · الوسائط محذوفة"}
-                </p>
-                {item.errorMessage && (
-                  <p className="mt-1 text-sm text-danger">
-                    {item.errorMessage}
-                  </p>
-                )}
-              </div>
-              <span
-                className={`shrink-0 text-sm ${itemStatusTone[item.status] ?? "text-ink-soft"}`}
-              >
-                {itemStatusLabel[item.status]}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <ItemList projectId={project.id} rows={rows} />
       )}
     </div>
   );

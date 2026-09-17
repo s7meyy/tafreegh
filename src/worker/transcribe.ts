@@ -1,16 +1,16 @@
 import { join } from "node:path";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, glossary, items, projects, segments, transcripts } from "@/db/schema";
 import { tidyOutput } from "@/lib/arabic";
-import { extractSegment, readAndDiscard } from "@/lib/media/ffmpeg";
 import { QuotaExhaustedError } from "@/lib/errors";
+import { extractSegment, readAndDiscard } from "@/lib/media/ffmpeg";
 import { providersFor, runProvider } from "@/lib/providers/registry";
 import type { TranscriptionProvider } from "@/lib/providers/types";
 import { enqueueReview } from "@/lib/queue";
 import { diffTranscripts, disagreementRate } from "@/lib/transcript/diff";
 import { mergeSegments, wordsToText, type SegmentTranscript } from "@/lib/transcript/merge";
-import type { TranscriptResult, Word } from "@/lib/transcript/types";
+import type { Word } from "@/lib/transcript/types";
 
 /**
  * مرحلة التفريغ.
@@ -18,6 +18,10 @@ import type { TranscriptResult, Word } from "@/lib/transcript/types";
  * كل محرّك متاح يفرّغ كل المقاطع الفرعية، ثم يُدمج مخرَج كل محرّك على
  * حدة، ثم يُقارن المخرجان. المقارنة هي الناتج الأثمن: ما اتفقا عليه
  * لا يُمسّ، وما اختلفا فيه هو ما تحكم فيه المراجعة (§2.1).
+ *
+ * **مستأنفة:** تفريغ كل مقطع فرعي يُحفظ فور إنجازه. فإن نفدت الحصة في
+ * منتصف ساعة صوت، أُجّلت المهمة، ولمّا عادت تخطّت ما أُنجز. بلا هذا
+ * يُعاد تفريغ ما فُرّغ — وهو إنفاق لحصة نادرة على عمل مكرَّر.
  *
  * المقاطع الفرعية تُعالج **بالتسلسل** لا بالتوازي: كل مقطع يحتاج سياق
  * سابقه، والتوازي يكون بين المقاطع الكاملة لا داخلها (§4.3).
@@ -61,56 +65,158 @@ export async function transcribeItem(itemId: string): Promise<void> {
     .set({ status: "transcribing", currentStage: "transcribe", errorMessage: null })
     .where(eq(items.id, itemId));
 
-  // مخرج كل محرّك على حدة، مقطعًا مقطعًا.
-  const byEngine = new Map<string, SegmentTranscript[]>();
+  const done = await loadFinishedSegments(itemId);
+  let deferral: QuotaExhaustedError | null = null;
 
   for (const plan of plans) {
+    const missing = engines.filter((e) => !done.has(`${plan.id}|${e.name}`));
+    if (missing.length === 0) continue; // أُنجز في تشغيل سابق
+
     const chunkPath = join(item.mediaPath, "..", `seg-${plan.index}.wav`);
     await extractSegment(item.mediaPath, chunkPath, plan.startMs, plan.endMs);
     const audio = await readAndDiscard(chunkPath);
     const audioSeconds = (plan.endMs - plan.startMs) / 1000;
 
-    for (const engine of engines) {
-      const result = await transcribeChunk(engine, {
-        audio,
-        filename: `seg-${plan.index}.wav`,
-        audioSeconds,
-        glossary: glossaryTerms,
-        languageHint: item.languageHint ?? "ar",
-      }, itemId);
+    for (const engine of missing) {
+      try {
+        const result = await runProvider(
+          engine,
+          {
+            audio,
+            filename: `seg-${plan.index}.wav`,
+            audioSeconds,
+            glossary: glossaryTerms,
+            languageHint: item.languageHint ?? "ar",
+          },
+          itemId,
+        );
 
-      if (!result) continue; // محرّك نفدت حصته أو فشل — نكمل بالباقي
+        await db
+          .insert(transcripts)
+          .values({
+            itemId,
+            segmentId: plan.id,
+            stage: "transcribe",
+            engine: engine.name,
+            model: engine.model,
+            text: result.text,
+            wordsJson: result.words,
+            avgConfidence: result.avgConfidence ?? null,
+          })
+          .onConflictDoNothing();
 
-      const list = byEngine.get(engine.name) ?? [];
-      list.push({
-        plan: {
-          index: plan.index,
-          startMs: plan.startMs,
-          endMs: plan.endMs,
-          overlapMs: plan.overlapMs,
-        },
-        words: result.words,
-      });
-      byEngine.set(engine.name, list);
+        done.add(`${plan.id}|${engine.name}`);
+      } catch (err) {
+        // نفاد الحصة ليس فشلًا: نواصل بما بقي من محرّكات، ونؤجّل في
+        // النهاية إن بقي مقطع بلا تفريغ من أي محرّك.
+        if (err instanceof QuotaExhaustedError) {
+          deferral ??= err;
+          continue;
+        }
+        console.error(`[transcribe] ${engine.name} أخفق في المقطع ${plan.index}:`, err);
+      }
     }
   }
 
-  if (byEngine.size === 0) {
-    throw new Error("لم ينجح أي محرّك في تفريغ أي مقطع فرعي.");
+  const uncovered = plans.filter(
+    (plan) => !engines.some((e) => done.has(`${plan.id}|${e.name}`)),
+  );
+
+  if (uncovered.length > 0) {
+    if (deferral) {
+      // العامل يعيد الجدولة بلا احتساب محاولة فاشلة، وما أُنجز باقٍ.
+      await db
+        .update(items)
+        .set({
+          status: "queued",
+          errorMessage: `${deferral.message} — بقي ${uncovered.length} مقطعًا`,
+        })
+        .where(eq(items.id, itemId));
+      throw deferral;
+    }
+    throw new Error(
+      `تعذّر تفريغ ${uncovered.length} مقطعًا فرعيًا بأي محرّك متاح.`,
+    );
   }
 
-  // دمج كل محرّك وحفظه نسخةً مستقلة
+  await finalize(itemId, plans, engines);
+  await enqueueReview(itemId);
+}
+
+/** مفاتيح «مقطع فرعي + محرّك» التي أُنجزت سلفًا. */
+async function loadFinishedSegments(itemId: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ segmentId: transcripts.segmentId, engine: transcripts.engine })
+    .from(transcripts)
+    .where(
+      and(
+        eq(transcripts.itemId, itemId),
+        eq(transcripts.stage, "transcribe"),
+        isNotNull(transcripts.segmentId),
+      ),
+    );
+  return new Set(rows.map((r) => `${r.segmentId}|${r.engine}`));
+}
+
+/** الدمج والمقارنة بعد اكتمال كل المقاطع الفرعية. */
+async function finalize(
+  itemId: string,
+  plans: { id: string; index: number; startMs: number; endMs: number; overlapMs: number }[],
+  engines: readonly TranscriptionProvider[],
+): Promise<void> {
+  const parts = await db
+    .select()
+    .from(transcripts)
+    .where(
+      and(
+        eq(transcripts.itemId, itemId),
+        eq(transcripts.stage, "transcribe"),
+        isNotNull(transcripts.segmentId),
+      ),
+    );
+
+  const planById = new Map(plans.map((p) => [p.id, p]));
+  const byEngine = new Map<string, SegmentTranscript[]>();
+
+  for (const part of parts) {
+    const plan = planById.get(part.segmentId!);
+    if (!plan) continue;
+    const list = byEngine.get(part.engine) ?? [];
+    list.push({
+      plan: {
+        index: plan.index,
+        startMs: plan.startMs,
+        endMs: plan.endMs,
+        overlapMs: plan.overlapMs,
+      },
+      words: (part.wordsJson ?? []) as Word[],
+    });
+    byEngine.set(part.engine, list);
+  }
+
+  // إعادة التشغيل قد تجد نسخة مدموجة قديمة؛ نمسحها ونكتب الحالية.
+  await db
+    .delete(transcripts)
+    .where(
+      and(
+        eq(transcripts.itemId, itemId),
+        eq(transcripts.stage, "transcribe"),
+        isNull(transcripts.segmentId),
+      ),
+    );
+
   const merged = new Map<string, Word[]>();
-  for (const [engineName, parts] of byEngine) {
-    const engine = engines.find((e) => e.name === engineName)!;
-    const words = mergeSegments(parts);
+  for (const [engineName, list] of byEngine) {
+    const engine = engines.find((e) => e.name === engineName);
+    const words = mergeSegments(list);
     merged.set(engineName, words);
 
     await db.insert(transcripts).values({
       itemId,
+      segmentId: null,
       stage: "transcribe",
       engine: engineName,
-      model: engine.model,
+      model: engine?.model ?? "unknown",
       text: tidyOutput(wordsToText(words)),
       wordsJson: words,
       avgConfidence: averageConfidence(words),
@@ -118,13 +224,14 @@ export async function transcribeItem(itemId: string): Promise<void> {
   }
 
   // المرجع هو أول محرّك نجح، بترتيب الأفضلية لا بترتيب الوصول.
-  const primaryName = engines.map((e) => e.name).find((n) => merged.has(n))!;
+  const primaryName = engines.map((e) => e.name).find((n) => merged.has(n));
+  if (!primaryName) throw new Error("لم ينجح أي محرّك.");
+
   const primary = merged.get(primaryName)!;
   const secondaryName = [...merged.keys()].find((n) => n !== primaryName);
   const secondary = secondaryName ? merged.get(secondaryName)! : null;
 
   const spans = secondary ? diffTranscripts(primary, secondary) : [];
-  const difficulty = computeDifficulty(primary, spans.length, secondary !== null);
 
   await db.insert(auditLog).values({
     itemId,
@@ -141,29 +248,13 @@ export async function transcribeItem(itemId: string): Promise<void> {
 
   await db
     .update(items)
-    .set({ difficulty, status: "reviewing_1", currentStage: "review" })
+    .set({
+      difficulty: computeDifficulty(primary, spans.length, secondary !== null),
+      status: "reviewing_1",
+      currentStage: "review",
+      errorMessage: null,
+    })
     .where(eq(items.id, itemId));
-
-  await enqueueReview(itemId);
-}
-
-/**
- * نداء محرّك واحد لمقطع فرعي.
- * `null` تعني «تخطَّ هذا المحرّك لهذا المقطع» — نفاد الحصة ليس فشلًا
- * يُسقط المهمة كلها ما دام محرّك آخر يعمل.
- */
-async function transcribeChunk(
-  engine: TranscriptionProvider,
-  input: Parameters<typeof runProvider>[1],
-  itemId: string,
-): Promise<TranscriptResult | null> {
-  try {
-    return await runProvider(engine, input, itemId);
-  } catch (err) {
-    if (err instanceof QuotaExhaustedError) return null;
-    console.error(`[transcribe] ${engine.name} أخفق:`, err);
-    return null;
-  }
 }
 
 function averageConfidence(words: readonly Word[]): number | null {

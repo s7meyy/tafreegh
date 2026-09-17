@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { edits, items, projects, transcripts } from "@/db/schema";
 import type { Word } from "@/lib/transcript/types";
@@ -19,10 +19,12 @@ export async function loadItem(itemId: string, userId: string) {
 
   if (!row) return null;
 
+  // النسخ المدموجة وحدها تُعرض؛ نسخ المقاطع الفرعية تفصيل تشغيلي
+  // للاستئناف لا مادة للمقارنة.
   const stages = await db
     .select()
     .from(transcripts)
-    .where(eq(transcripts.itemId, itemId))
+    .where(and(eq(transcripts.itemId, itemId), isNull(transcripts.segmentId)))
     .orderBy(asc(transcripts.createdAt));
 
   const editRows = await db

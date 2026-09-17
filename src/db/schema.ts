@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -190,6 +191,14 @@ export const transcripts = pgTable(
     itemId: uuid("item_id")
       .notNull()
       .references(() => items.id, { onDelete: "cascade" }),
+    /**
+     * المقطع الفرعي، حين تكون النسخة جزئية.
+     * `null` للنسخة المدموجة الكاملة. وجودها يجعل التفريغ مستأنفًا:
+     * ما أُنجز محفوظ، فانقطاعُ الحصة لا يعيد العمل من الصفر.
+     */
+    segmentId: uuid("segment_id").references(() => segments.id, {
+      onDelete: "cascade",
+    }),
     stage: stageEnum("stage").notNull(),
     /** اسم المزوّد: groq | gemini | local | ollama */
     engine: text("engine").notNull(),
@@ -202,7 +211,13 @@ export const transcripts = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("transcripts_item_stage_idx").on(t.itemId, t.stage)],
+  (t) => [
+    index("transcripts_item_stage_idx").on(t.itemId, t.stage),
+    // نسخة واحدة لكل (مقطع فرعي، محرّك) — يمنع الازدواج عند إعادة التشغيل
+    uniqueIndex("transcripts_segment_engine_idx")
+      .on(t.segmentId, t.engine)
+      .where(sql`${t.segmentId} is not null`),
+  ],
 );
 
 /** كل تعديل تقترحه المراجعة — بسببه وحكم التدقيق عليه */

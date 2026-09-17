@@ -1,4 +1,4 @@
-import { Worker, type Job } from "bullmq";
+import { DelayedError, Worker, type Job } from "bullmq";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { items } from "@/db/schema";
@@ -39,12 +39,26 @@ async function sweep() {
 function startWorker(stage: Stage, handle: (itemId: string) => Promise<void>) {
   const worker = new Worker(
     `tafreegh:${stage}`,
-    async (job: Job<{ itemId: string }>) => {
+    async (job: Job<{ itemId: string }>, token?: string) => {
       const { itemId } = job.data;
       try {
         await handle(itemId);
       } catch (err) {
-        await onFailure(itemId, stage, job, err);
+        /**
+         * نفاد الحصة ليس فشلًا، بل انتظار. فالمهمة تُؤجَّل إلى حين
+         * تجدّد النافذة **دون احتساب محاولة**: لو عُدّت فشلًا لاستهلك
+         * مقطعٌ طويلٌ محاولاته الثلاث في يوم واحد ثم مات.
+         *
+         * `DelayedError` هي الطريقة التي يفهم بها BullMQ أن المهمة
+         * انتقلت إلى التأجيل ولم تفشل.
+         */
+        if (err instanceof QuotaExhaustedError && token) {
+          console.log(`[${stage}] تأجيل ${itemId}: ${err.message}`);
+          await job.moveToDelayed(Date.now() + err.retryAfterMs, token);
+          throw new DelayedError();
+        }
+
+        await recordFailure(itemId, stage, job, err);
         throw err;
       }
     },
@@ -52,35 +66,24 @@ function startWorker(stage: Stage, handle: (itemId: string) => Promise<void>) {
   );
 
   worker.on("failed", (job, err) => {
+    if (err instanceof DelayedError) return;
     console.error(`[${stage}] فشلت المهمة ${job?.id}:`, err.message);
   });
-  worker.on("completed", (job) => {
-    console.log(`[${stage}] اكتملت ${job.id}`);
-  });
+  worker.on("completed", (job) => console.log(`[${stage}] اكتملت ${job.id}`));
 
   return worker;
 }
 
 /**
- * نفاد الحصة ليس فشلًا: المقطع يعود إلى الانتظار ويُعاد جدولته بعد
- * تجدّد النافذة. أما الفشل الحقيقي فيُسجَّل برسالة عربية للمستخدم،
- * وبعد استنفاد المحاولات فقط — قبلها المهمة ما زالت حيّة.
+ * الفشل يُسجَّل برسالة عربية للمستخدم بعد استنفاد المحاولات فقط —
+ * قبلها المهمة ما زالت حيّة، وإظهارها فاشلةً يُقلق بلا سبب.
  */
-async function onFailure(
+async function recordFailure(
   itemId: string,
   stage: Stage,
   job: Job,
   err: unknown,
 ): Promise<void> {
-  if (err instanceof QuotaExhaustedError) {
-    await db
-      .update(items)
-      .set({ status: "queued", errorMessage: err.message })
-      .where(eq(items.id, itemId));
-    await job.moveToDelayed(Date.now() + err.retryAfterMs).catch(() => {});
-    return;
-  }
-
   const attemptsLeft = (job.opts.attempts ?? 1) - job.attemptsMade;
   if (attemptsLeft > 0) return;
 
@@ -98,9 +101,7 @@ const workers = Object.entries(handlers).map(([stage, handle]) =>
   startWorker(stage as Stage, handle),
 );
 
-console.log(
-  `عامل تفريغ يعمل — المراحل: ${Object.keys(handlers).join("، ")}`,
-);
+console.log(`عامل تفريغ يعمل — المراحل: ${Object.keys(handlers).join("، ")}`);
 
 void sweep();
 const sweepTimer = setInterval(() => void sweep(), SWEEP_INTERVAL_MS);

@@ -1,0 +1,3 @@
+ALTER TABLE "transcripts" ADD COLUMN "segment_id" uuid;--> statement-breakpoint
+ALTER TABLE "transcripts" ADD CONSTRAINT "transcripts_segment_id_segments_id_fk" FOREIGN KEY ("segment_id") REFERENCES "public"."segments"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "transcripts_segment_engine_idx" ON "transcripts" USING btree ("segment_id","engine") WHERE "transcripts"."segment_id" is not null;

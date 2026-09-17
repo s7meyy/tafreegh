@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { mkdir, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { env } from "./env";
 
@@ -20,12 +19,6 @@ const ACCEPTED = new Set([
   "video/x-matroska",
 ]);
 
-/**
- * حدّ الرفع في م0. الرفع المجزّأ المستأنف مجدول في م5 (§9)،
- * وعندها يرتفع الحدّ إلى 2GB.
- */
-export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
-
 export function isAcceptedMedia(type: string, filename: string): boolean {
   if (ACCEPTED.has(type)) return true;
   // بعض المتصفحات ترسل نوعًا فارغًا؛ نقبل بالامتداد ثم يتحقّق ffprobe لاحقًا.
@@ -41,20 +34,26 @@ function itemDir(itemId: string): string {
   return dir;
 }
 
-export async function saveMedia(
+/**
+ * نقل ملف رفع مكتمل إلى مجلد مقطعه.
+ *
+ * ضروري لا تنظيمي: `deleteItemMedia` تحذف مجلد المقطع، فملفٌ باقٍ في
+ * `uploads/` لا يُحذف أبدًا — ويبقى غيغابايت على القرص بعد الاعتماد.
+ * وكل ما تنتجه المراحل لاحقًا (النسخة المطبّعة، المقاطع الفرعية) يُكتب
+ * بجوار هذا الملف، فيُحذف معه.
+ */
+export async function adoptUpload(
   itemId: string,
+  tempPath: string,
   filename: string,
-  bytes: Buffer,
-): Promise<{ path: string; hash: string }> {
+): Promise<string> {
   const dir = itemDir(itemId);
   await mkdir(dir, { recursive: true });
 
   const ext = filename.match(/\.[a-z0-9]+$/i)?.[0]?.toLowerCase() ?? "";
   const path = join(dir, `source${ext}`);
-  await writeFile(path, bytes);
-
-  const hash = createHash("sha256").update(bytes).digest("hex");
-  return { path, hash };
+  await rename(tempPath, path);
+  return path;
 }
 
 export async function deleteMedia(path: string): Promise<void> {
