@@ -12,7 +12,14 @@ interface FileState {
   message?: string;
 }
 
-export function UploadPanel({ projectId }: { projectId: string }) {
+export function UploadPanel({
+  projectId,
+  youtubeEnabled,
+}: {
+  projectId: string;
+  /** حقل الروابط يظهر حين تكون الميزة مفعّلة وحدها */
+  youtubeEnabled: boolean;
+}) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -150,27 +157,29 @@ export function UploadPanel({ projectId }: { projectId: string }) {
         />
       </div>
 
-      <form onSubmit={submitUrls} className="flex flex-wrap gap-2">
-        <label htmlFor="yt-urls" className="sr-only">
-          روابط يوتيوب
-        </label>
-        <textarea
-          id="yt-urls"
-          value={urls}
-          onChange={(e) => setUrls(e.target.value)}
-          rows={2}
-          dir="ltr"
-          placeholder="https://youtube.com/watch?v=…"
-          className="min-w-64 flex-1 rounded-lg border border-line bg-panel p-3 text-sm outline-none focus:border-brand"
-        />
-        <button
-          type="submit"
-          disabled={busy || !urls.trim()}
-          className="min-h-11 self-start rounded-lg border border-line px-5 font-medium hover:border-brand disabled:opacity-50"
-        >
-          إضافة الروابط
-        </button>
-      </form>
+      {youtubeEnabled && (
+        <form onSubmit={submitUrls} className="flex flex-wrap gap-2">
+          <label htmlFor="yt-urls" className="sr-only">
+            روابط يوتيوب
+          </label>
+          <textarea
+            id="yt-urls"
+            value={urls}
+            onChange={(e) => setUrls(e.target.value)}
+            rows={2}
+            dir="ltr"
+            placeholder="https://youtube.com/watch?v=…"
+            className="min-w-64 flex-1 rounded-lg border border-line bg-panel p-3 text-sm outline-none focus:border-brand"
+          />
+          <button
+            type="submit"
+            disabled={busy || !urls.trim()}
+            className="min-h-11 self-start rounded-lg border border-line px-5 font-medium hover:border-brand disabled:opacity-50"
+          >
+            إضافة الروابط
+          </button>
+        </form>
+      )}
 
       {error && (
         <p role="alert" className="text-sm text-danger">

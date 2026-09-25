@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * محرّر الاعتماد.
@@ -27,6 +27,53 @@ export function ApprovalEditor({
   const [error, setError] = useState<string | null>(null);
 
   const edited = text.trim() !== initialText.trim();
+  const [restored, setRestored] = useState(false);
+  const draftKey = `tafreegh:draft:${itemId}`;
+  const loaded = useRef(false);
+
+  // استعادة مسودة سابقة: من حرّر نصًّا طويلًا ثم أغلق التبويب خطأً لا
+  // يخسر عمله. التخزين في المتصفح وحده — مسودة شخصية لا بيانات مشتركة.
+  useEffect(() => {
+    if (approved || loaded.current) return;
+    loaded.current = true;
+    try {
+      const draft = localStorage.getItem(draftKey);
+      if (draft && draft.trim() !== initialText.trim()) {
+        setText(draft);
+        setRestored(true);
+      }
+    } catch {
+      // التخزين محجوب (تصفّح خاص مثلًا) — المحرّر يعمل بدونه.
+    }
+  }, [approved, draftKey, initialText]);
+
+  // حفظ المسودة بعد توقّف الكتابة بثانية، لا مع كل حرف.
+  useEffect(() => {
+    if (approved || !loaded.current) return;
+    const timer = setTimeout(() => {
+      try {
+        if (edited) localStorage.setItem(draftKey, text);
+        else localStorage.removeItem(draftKey);
+      } catch {}
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [text, edited, approved, draftKey]);
+
+  // تنبيه المتصفح عند المغادرة وفي النصّ تعديل لم يُعتمد.
+  useEffect(() => {
+    if (!edited || approved) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [edited, approved]);
+
+  function discardDraft() {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {}
+    setText(initialText);
+    setRestored(false);
+  }
 
   async function approve() {
     setBusy(true);
@@ -41,6 +88,9 @@ export function ApprovalEditor({
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? "تعذّر الاعتماد.");
       }
+      try {
+        localStorage.removeItem(draftKey);
+      } catch {}
       setConfirming(false);
       router.refresh();
     } catch (err) {
@@ -68,8 +118,19 @@ export function ApprovalEditor({
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-semibold">النصّ</h2>
-        {edited && <span className="text-sm text-warn">فيه تعديلات لم تُعتمد</span>}
+        {edited && (
+          <span className="text-sm text-warn">فيه تعديلات لم تُعتمد · محفوظة مسودةً</span>
+        )}
       </div>
+
+      {restored && (
+        <p className="flex flex-wrap items-center gap-3 rounded-lg bg-brand-soft px-4 py-2 text-sm">
+          <span>استُعيدت مسودتك غير المعتمدة من آخر زيارة.</span>
+          <button onClick={discardDraft} className="min-h-11 font-medium text-brand underline">
+            تجاهلها وارجع للنصّ الأصلي
+          </button>
+        </p>
+      )}
 
       <label htmlFor="transcript" className="sr-only">
         نصّ التفريغ

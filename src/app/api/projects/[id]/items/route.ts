@@ -59,7 +59,7 @@ async function addYoutube(projectId: string, url: string): Promise<Result> {
       filename: url,
       ok: false,
       error:
-        "دعم روابط يوتيوب معطّل. فعّله بـ ENABLE_YOUTUBE=true بعد قراءة التحذير في docs/PLAN.md.",
+        "إضافة الروابط غير متاحة في هذا الموقع. نزّل المقطع وارفعه مباشرة.",
     };
   }
 

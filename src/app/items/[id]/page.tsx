@@ -12,6 +12,7 @@ import {
 import { requireUser } from "@/lib/session";
 import { ApprovalEditor } from "@/components/approval-editor";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { ItemActions } from "@/components/item-actions";
 import { ExportButtons } from "@/components/export-buttons";
 import { UnresolvedSpans } from "@/components/unresolved-spans";
 import { hasChanges, wordDiff, type DiffSegment } from "@/lib/transcript/word-diff";
@@ -60,6 +61,9 @@ export default async function ItemPage({
             </>
           )}
         </p>
+        <div className="mt-4">
+          <ItemActions itemId={item.id} title={item.title} failed={item.status === "failed"} />
+        </div>
       </header>
 
       {item.errorMessage && (

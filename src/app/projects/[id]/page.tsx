@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { items, projects } from "@/db/schema";
 import { formatCount } from "@/lib/format";
 import { IN_PROGRESS_STATUSES, profileLabel, transcriptionModeLabel } from "@/lib/labels";
+import { env } from "@/lib/env";
 import { requireUser } from "@/lib/session";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { ItemList, type ItemRow } from "@/components/item-list";
@@ -67,7 +68,7 @@ export default async function ProjectPage({
         </p>
       </div>
 
-      <UploadPanel projectId={project.id} />
+      <UploadPanel projectId={project.id} youtubeEnabled={env().ENABLE_YOUTUBE} />
 
       {rows.length === 0 ? (
         <p className="rounded-xl border border-dashed border-line bg-panel p-10 text-center text-ink-soft">

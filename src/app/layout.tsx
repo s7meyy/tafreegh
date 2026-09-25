@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
+import { getCurrentUser } from "@/lib/session";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -8,11 +9,15 @@ export const metadata: Metadata = {
   description: "تفريغ المقاطع الصوتية والمرئية العربية بثلاث مراحل مراجعة",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // الزائر في صفحتي الدخول والإعداد لا يرى روابط لا يصل إليها، ولا
+  // زرّ «خروج» من جلسة لم تبدأ.
+  const user = await getCurrentUser().catch(() => null);
+
   return (
     <html lang="ar" dir="rtl">
       <head>
@@ -37,11 +42,15 @@ export default function RootLayout({
             >
               تفريغ
             </Link>
-            <nav className="flex flex-1 items-center gap-1 text-sm">
-              <NavLink href="/">المجلدات</NavLink>
-              <NavLink href="/jobs">المهام والحصص</NavLink>
-            </nav>
-            <SignOutButton />
+            {user && (
+              <>
+                <nav className="flex flex-1 items-center gap-1 text-sm">
+                  <NavLink href="/">المجلدات</NavLink>
+                  <NavLink href="/jobs">المهام</NavLink>
+                </nav>
+                <SignOutButton />
+              </>
+            )}
           </div>
         </header>
 

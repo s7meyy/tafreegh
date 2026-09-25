@@ -1,47 +1,60 @@
 import { getRedis } from "./redis";
 
 /**
- * حدّ محاولات بسيط بنافذة ثابتة.
+ * حدّ المحاولات الفاشلة.
  *
- * يخصّ المحاولات التي يجرّبها الغرباء — الدخول قبل كل شيء. بلا حدّ،
- * كلمة المرور مهما طالت تسقط أمام آلة تجرّب بلا كلل.
+ * يُحصى الفشل وحده: احتساب الدخول الناجح كان يحجب مستخدمًا شرعيًا
+ * يدخل ويخرج كثيرًا. ويُحصى على مفتاحين معًا — العنوان والحساب —
+ * فتخمين كلمة مرور حساب بعينه يُحجب ولو تنقّل المهاجم بين العناوين،
+ * والعنوان الواحد لا يجرّب حسابات كثيرة.
  *
- * النافذة الثابتة تسمح بضعف الحدّ على حدود النافذتين، وهذا مقبول هنا:
+ * النافذة ثابتة، فتسمح بضعف الحدّ على حدود النافذتين؛ مقبول هنا:
  * الغرض إبطاء التخمين لا منعه بدقة رياضية.
  */
-export interface RateLimitResult {
-  ok: boolean;
-  remaining: number;
-  retryAfterMs: number;
+
+function bucketKey(key: string, windowSec: number): string {
+  const bucket = Math.floor(Date.now() / (windowSec * 1000));
+  return `ratelimit:${key}:${bucket}`;
 }
 
-export async function rateLimit(
-  key: string,
+/** هل تجاوز أيٌّ من المفاتيح الحدّ؟ قراءة فقط، لا تستهلك محاولة. */
+export async function isBlocked(
+  keys: readonly string[],
   limit: number,
   windowSec: number,
-): Promise<RateLimitResult> {
+): Promise<{ blocked: boolean; retryAfterMs: number }> {
   const redis = getRedis();
-  const bucket = Math.floor(Date.now() / (windowSec * 1000));
-  const redisKey = `ratelimit:${key}:${bucket}`;
+  const names = keys.map((k) => bucketKey(k, windowSec));
+  const counts = await redis.mget(names);
 
-  const count = await redis.incr(redisKey);
-  if (count === 1) await redis.expire(redisKey, windowSec);
+  const over = counts.findIndex((c) => Number(c ?? 0) >= limit);
+  if (over === -1) return { blocked: false, retryAfterMs: 0 };
 
-  const pttl = await redis.pttl(redisKey);
+  const pttl = await redis.pttl(names[over]!);
+  return { blocked: true, retryAfterMs: pttl > 0 ? pttl : windowSec * 1000 };
+}
 
-  return {
-    ok: count <= limit,
-    remaining: Math.max(0, limit - count),
-    retryAfterMs: pttl > 0 ? pttl : windowSec * 1000,
-  };
+/** تسجيل محاولة فاشلة على كل المفاتيح. */
+export async function recordFailure(
+  keys: readonly string[],
+  windowSec: number,
+): Promise<void> {
+  const pipe = getRedis().pipeline();
+  for (const key of keys) {
+    const name = bucketKey(key, windowSec);
+    pipe.incr(name);
+    pipe.expire(name, windowSec);
+  }
+  await pipe.exec();
 }
 
 /**
  * مُعرِّف الطالب.
  *
- * خلف وكيل عكسي يكون `request.ip` عنوانَ الوكيل نفسه للجميع، فنقرأ
+ * خلف وكيل عكسي يكون عنوان الاتصال عنوانَ الوكيل للجميع، فنقرأ
  * `x-forwarded-for`. وهي ترويسة يزوّرها العميل، فلا تصلح إلا خلف وكيل
- * يُعيد كتابتها — وهو الوضع الموصى به في دليل النشر.
+ * يعيد كتابتها — وهو الوضع الموصى به في دليل النشر. ولأن الحساب يُحصى
+ * أيضًا، فتزوير العنوان لا يفتح باب التخمين على حساب بعينه.
  */
 export function clientKey(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
