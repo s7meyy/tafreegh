@@ -4,8 +4,9 @@ import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { items, projects } from "@/db/schema";
 import { formatCount } from "@/lib/format";
-import { profileLabel, transcriptionModeLabel } from "@/lib/labels";
+import { IN_PROGRESS_STATUSES, profileLabel, transcriptionModeLabel } from "@/lib/labels";
 import { requireUser } from "@/lib/session";
+import { AutoRefresh } from "@/components/auto-refresh";
 import { ItemList, type ItemRow } from "@/components/item-list";
 import { UploadPanel } from "@/components/upload-panel";
 
@@ -45,6 +46,7 @@ export default async function ProjectPage({
 
   return (
     <div className="space-y-8">
+      <AutoRefresh active={rows.some((r) => IN_PROGRESS_STATUSES.has(r.status))} />
       <div>
         <Link href="/" className="text-sm text-ink-soft hover:text-brand">
           ← المجلدات

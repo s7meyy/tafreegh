@@ -2,8 +2,9 @@ import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { items, jobs, projects } from "@/db/schema";
 import { formatDate } from "@/lib/format";
-import { itemStatusLabel, itemStatusTone } from "@/lib/labels";
+import { IN_PROGRESS_STATUSES, itemStatusLabel, itemStatusTone } from "@/lib/labels";
 import { requireUser } from "@/lib/session";
+import { AutoRefresh } from "@/components/auto-refresh";
 import { QuotaPanel } from "@/components/quota-panel";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +41,7 @@ export default async function JobsPage() {
 
   return (
     <div className="space-y-6">
+      <AutoRefresh active={pending.some((i) => IN_PROGRESS_STATUSES.has(i.status))} />
       <div>
         <h1 className="text-2xl font-bold">المهام والحصص</h1>
         <p className="mt-1 text-ink-soft">

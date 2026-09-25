@@ -4,14 +4,17 @@ import { bestText, loadItem, stageTexts } from "@/lib/items";
 import { formatDate, formatDuration } from "@/lib/format";
 import {
   editReasonLabel,
+  IN_PROGRESS_STATUSES,
   itemStatusLabel,
   itemStatusTone,
   transcriptionModeLabel,
 } from "@/lib/labels";
 import { requireUser } from "@/lib/session";
 import { ApprovalEditor } from "@/components/approval-editor";
+import { AutoRefresh } from "@/components/auto-refresh";
 import { ExportButtons } from "@/components/export-buttons";
 import { UnresolvedSpans } from "@/components/unresolved-spans";
+import { hasChanges, wordDiff, type DiffSegment } from "@/lib/transcript/word-diff";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +36,7 @@ export default async function ItemPage({
 
   return (
     <div className="space-y-8">
+      <AutoRefresh active={IN_PROGRESS_STATUSES.has(item.status)} />
       <header>
         <Link
           href={`/projects/${project.id}`}
@@ -110,20 +114,67 @@ function StageComparison({
         مقارنة المراحل
       </summary>
       <div className="space-y-5 border-t border-line p-5">
-        {shown.map((stage) => (
-          <section key={stage.key}>
-            <h3 className="mb-2 text-sm font-semibold text-ink-soft">
-              {stage.label}
-              {stage.row!.avgConfidence != null &&
-                ` · متوسط الثقة ${(stage.row!.avgConfidence * 100).toFixed(0)}%`}
-            </h3>
-            <p className="whitespace-pre-wrap rounded-lg bg-surface p-4 text-sm">
-              {stage.row!.text}
-            </p>
-          </section>
-        ))}
+        <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-soft">
+          <span>كل مرحلة معروضة مقابل التي قبلها:</span>
+          <span>
+            <del className="rounded bg-danger/15 px-1 text-danger">محذوف</del>
+          </span>
+          <span>
+            <ins className="rounded bg-ok/15 px-1 text-ok no-underline">مضاف</ins>
+          </span>
+        </p>
+
+        {shown.map((stage, index) => {
+          const previous = index > 0 ? shown[index - 1]!.row!.text : null;
+          const segments = previous ? wordDiff(previous, stage.row!.text) : null;
+
+          return (
+            <section key={stage.key}>
+              <h3 className="mb-2 text-sm font-semibold text-ink-soft">
+                {stage.label}
+                {stage.row!.avgConfidence != null &&
+                  ` · متوسط الثقة ${(stage.row!.avgConfidence * 100).toFixed(0)}%`}
+                {segments && !hasChanges(segments) && " · بلا تغيير"}
+              </h3>
+              <div className="rounded-lg bg-surface p-4 text-sm leading-loose">
+                {segments ? (
+                  <DiffView segments={segments} />
+                ) : (
+                  <p className="whitespace-pre-wrap">{stage.row!.text}</p>
+                )}
+              </div>
+            </section>
+          );
+        })}
       </div>
     </details>
+  );
+}
+
+/** النصّ بفروقه: المحذوف مشطوب بالأحمر، والمضاف بخلفية خضراء. */
+function DiffView({ segments }: { segments: DiffSegment[] }) {
+  return (
+    <p>
+      {segments.map((seg, i) => {
+        if (seg.kind === "break") return <span key={i} className="block h-4" />;
+        const text = `${seg.text} `;
+        if (seg.kind === "removed") {
+          return (
+            <del key={i} className="rounded bg-danger/15 px-0.5 text-danger">
+              {text}
+            </del>
+          );
+        }
+        if (seg.kind === "added") {
+          return (
+            <ins key={i} className="rounded bg-ok/15 px-0.5 text-ok no-underline">
+              {text}
+            </ins>
+          );
+        }
+        return <span key={i}>{text}</span>;
+      })}
+    </p>
   );
 }
 

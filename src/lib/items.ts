@@ -86,11 +86,21 @@ export function stageTexts(stages: LoadedItem["stages"]) {
   };
 
   return {
-    transcribe: pick("transcribe"),
+    // المرجع هو المحرّك الأعلى ثقة — منه بدأت المراجعة، فالمقارنة به.
+    // «آخر ما أُدرج» كان يعرض المحرّك الثاني، فتبدو المراجعة وقد
+    // غيّرت ما لم تغيّره.
+    transcribe: primaryTranscript(stages),
     review: pick("review"),
     audit: pick("audit"),
     final: pick("export"),
   };
+}
+
+function primaryTranscript(stages: LoadedItem["stages"]) {
+  const transcribed = stages
+    .filter((s) => s.stage === "transcribe")
+    .sort((a, b) => (b.avgConfidence ?? -1) - (a.avgConfidence ?? -1));
+  return transcribed[0] ?? null;
 }
 
 /**

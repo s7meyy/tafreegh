@@ -2,6 +2,8 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { ConfigError } from "@/lib/errors";
 import { auditLog, edits, glossary, items, projects, transcripts } from "@/db/schema";
+import { toParagraphs } from "@/lib/review/apply";
+import { applyGlossaryVariants } from "@/lib/review/glossary";
 import { isReviewConfigured } from "@/lib/review/provider";
 import { reviewTranscript, unresolvedSpans } from "@/lib/review/pipeline";
 import { diffTranscripts } from "@/lib/transcript/diff";
@@ -54,9 +56,14 @@ export async function reviewItem(itemId: string): Promise<void> {
     : [];
 
   const terms = await db
-    .select({ term: glossary.term })
+    .select({ term: glossary.term, variants: glossary.variants })
     .from(glossary)
     .where(eq(glossary.projectId, project.id));
+
+  // الأشكال الخاطئة المعلومة تُصحَّح آليًا قبل النموذج: بلا حصة، وبلا
+  // احتمال خطأ، ويبقى للنموذج ما لا يعرفه المستخدم مسبقًا.
+  const glossaryPass = applyGlossaryVariants(toParagraphs(primary.text), terms);
+  const startText = glossaryPass.paragraphs.join("\n\n");
 
   await db
     .update(items)
@@ -64,7 +71,7 @@ export async function reviewItem(itemId: string): Promise<void> {
     .where(eq(items.id, itemId));
 
   const output = await reviewTranscript({
-    text: primary.text,
+    text: startText,
     words: primaryWords,
     disagreements,
     glossary: terms.map((t) => t.term),
@@ -99,6 +106,22 @@ export async function reviewItem(itemId: string): Promise<void> {
   ]);
 
   // سجل التعديلات مع حكم التدقيق على كل واحد — مادة تبويب «التعديلات».
+  if (glossaryPass.edits.length > 0) {
+    await db.insert(edits).values(
+      glossaryPass.edits.map((e) => ({
+        itemId,
+        fromStage: "review" as const,
+        paragraph: e.para,
+        before: e.from,
+        after: e.to,
+        reason: e.reason,
+        confidence: 1,
+        verdict: "accepted" as const,
+        verdictNote: "تصحيح آلي من مسرد المشروع",
+      })),
+    );
+  }
+
   if (output.proposed.length > 0) {
     const kept = new Set(output.finalEdits.map((e) => `${e.para}|${e.from}`));
     await db.insert(edits).values(

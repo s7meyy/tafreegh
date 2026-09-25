@@ -61,3 +61,13 @@ export const editReasonLabel: Record<string, string> = {
   punctuation: "ترقيم",
   disfluency: "حذف تلعثم",
 };
+
+/** حالات يعمل فيها العامل — ما دام مقطع فيها، تتحدّث الصفحة تلقائيًا. */
+export const IN_PROGRESS_STATUSES: ReadonlySet<string> = new Set([
+  "queued",
+  "fetching",
+  "preparing",
+  "transcribing",
+  "reviewing_1",
+  "reviewing_2",
+]);
