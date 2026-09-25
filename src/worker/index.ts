@@ -1,8 +1,8 @@
-import { DelayedError, Worker, type Job } from "bullmq";
+import { DelayedError, UnrecoverableError, Worker, type Job } from "bullmq";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { items } from "@/db/schema";
-import { QuotaExhaustedError } from "@/lib/errors";
+import { ConfigError, QuotaExhaustedError } from "@/lib/errors";
 import { concurrencyFor, type Stage } from "@/lib/queue";
 import { getRedis } from "@/lib/redis";
 import { cleanupItem, sweepExpiredMedia } from "./cleanup";
@@ -60,6 +60,13 @@ function startWorker(stage: Stage, handle: (itemId: string) => Promise<void>) {
           throw new DelayedError();
         }
 
+        // خطأ الإعداد لا يُصلحه التكرار: يُسجَّل فورًا، و UnrecoverableError
+        // تمنع BullMQ من محاولتين أخريين بلا فائدة.
+        if (err instanceof ConfigError) {
+          await recordFailure(itemId, stage, job, err, true);
+          throw new UnrecoverableError(err.message);
+        }
+
         await recordFailure(itemId, stage, job, err);
         throw err;
       }
@@ -85,9 +92,11 @@ async function recordFailure(
   stage: Stage,
   job: Job,
   err: unknown,
+  final = false,
 ): Promise<void> {
-  const attemptsLeft = (job.opts.attempts ?? 1) - job.attemptsMade;
-  if (attemptsLeft > 0) return;
+  // attemptsMade لا يشمل المحاولة الجارية بعد
+  const attemptsLeft = (job.opts.attempts ?? 1) - (job.attemptsMade + 1);
+  if (!final && attemptsLeft > 0) return;
 
   await db
     .update(items)

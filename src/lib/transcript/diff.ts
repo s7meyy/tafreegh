@@ -17,6 +17,9 @@ export interface DiffSpan {
   /** موضع البداية في كلمات المحرّك الأول */
   aStart: number;
   aEnd: number;
+  /** الموضع المقابل في كلمات المحرّك الثاني */
+  bStart: number;
+  bEnd: number;
   /** نصّ كل محرّك في هذا الموضع */
   a: string;
   b: string;
@@ -221,6 +224,8 @@ function materialize(
   return {
     aStart: span.aStart,
     aEnd: span.aEnd,
+    bStart: span.bStart,
+    bEnd: span.bEnd,
     a: aWords.map((w) => w.text).join(" "),
     b: bWords.map((w) => w.text).join(" "),
     startMs,

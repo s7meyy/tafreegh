@@ -11,6 +11,7 @@ import {
 import { requireUser } from "@/lib/session";
 import { ApprovalEditor } from "@/components/approval-editor";
 import { ExportButtons } from "@/components/export-buttons";
+import { UnresolvedSpans } from "@/components/unresolved-spans";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,8 @@ export default async function ItemPage({
         </p>
       ) : (
         <>
+          {!approved && <UnresolvedSpans spans={loaded.unresolved} />}
+
           <ApprovalEditor
             itemId={item.id}
             initialText={text}

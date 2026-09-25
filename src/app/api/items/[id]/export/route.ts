@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { toDocx } from "@/lib/export/docx";
 import { toSrt, toVtt } from "@/lib/export/subtitles";
 import { safeFilename, toMarkdown, toTxt, type ExportMeta } from "@/lib/export/text";
-import { bestText, loadItem, timedWords } from "@/lib/items";
+import { bestText, loadItem, subtitleWords } from "@/lib/items";
 import { unauthorized } from "@/lib/api";
 import { requireApiUser } from "@/lib/session";
 
@@ -92,7 +92,7 @@ async function render(
     case "vtt": {
       // بطاقات الترجمة تحتاج توقيتات. هي محفوظة في قاعدة البيانات لا
       // في ملف الصوت، فتبقى متاحة بعد حذف الوسائط.
-      const words = timedWords(loaded.stages);
+      const words = subtitleWords(loaded.stages);
       if (words.length === 0) return { body: null, extension: format };
       return {
         body: format === "srt" ? toSrt(words) : toVtt(words),

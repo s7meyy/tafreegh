@@ -30,7 +30,7 @@ describe("buildEvidence", () => {
 
   it("يعلّم مواضع اختلاف المحرّكين مع بديل المحرّك الآخر", () => {
     const disagreements: DiffSpan[] = [
-      { aStart: 0, aEnd: 1, a: "الرياض", b: "جدة", startMs: 500, endMs: 900 },
+      { aStart: 0, aEnd: 1, bStart: 0, bEnd: 1, a: "الرياض", b: "جدة", startMs: 500, endMs: 900 },
     ];
     const spans = buildEvidence({ paragraphs, words: [], disagreements });
     expect(spans[0]).toMatchObject({
@@ -43,7 +43,7 @@ describe("buildEvidence", () => {
 
   it("يتجاهل الإضافة من المحرّك الثاني — لا موضع لها في المرجع", () => {
     const disagreements: DiffSpan[] = [
-      { aStart: 3, aEnd: 3, a: "", b: "زيادة", startMs: 0, endMs: 0 },
+      { aStart: 3, aEnd: 3, bStart: 3, bEnd: 4, a: "", b: "زيادة", startMs: 0, endMs: 0 },
     ];
     expect(buildEvidence({ paragraphs, words: [], disagreements })).toEqual([]);
   });

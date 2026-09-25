@@ -1,6 +1,8 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { edits, items, projects, transcripts } from "@/db/schema";
+import { auditLog, edits, items, projects, transcripts } from "@/db/schema";
+import type { EvidenceSpan } from "@/lib/review/types";
+import { retime } from "@/lib/transcript/retime";
 import type { Word } from "@/lib/transcript/types";
 
 /**
@@ -33,7 +35,17 @@ export async function loadItem(itemId: string, userId: string) {
     .where(eq(edits.itemId, itemId))
     .orderBy(asc(edits.paragraph));
 
-  return { ...row, stages, edits: editRows };
+  // مواضع بقيت مشكوكًا فيها بعد المراجعتين — من آخر تشغيل للمراجعة
+  const [lastReview] = await db
+    .select({ detail: auditLog.detail })
+    .from(auditLog)
+    .where(and(eq(auditLog.itemId, itemId), eq(auditLog.action, "review")))
+    .orderBy(desc(auditLog.createdAt))
+    .limit(1);
+  const detail = lastReview?.detail as { unresolvedSpans?: EvidenceSpan[] } | undefined;
+  const unresolved = detail?.unresolvedSpans ?? [];
+
+  return { ...row, stages, edits: editRows, unresolved };
 }
 
 export type LoadedItem = NonNullable<Awaited<ReturnType<typeof loadItem>>>;
@@ -79,4 +91,12 @@ export function stageTexts(stages: LoadedItem["stages"]) {
     audit: pick("audit"),
     final: pick("export"),
   };
+}
+
+/**
+ * كلمات بطاقات الترجمة: نصّ المرحلة الأخيرة بتوقيتات التفريغ.
+ * التصدير من الكلمات الخام وحدها كان يُخرج أخطاءً صُحّحت فعلًا.
+ */
+export function subtitleWords(stages: LoadedItem["stages"]): Word[] {
+  return retime(bestText(stages), timedWords(stages));
 }

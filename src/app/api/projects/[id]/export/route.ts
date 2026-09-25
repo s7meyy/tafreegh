@@ -7,7 +7,7 @@ import { items, projects } from "@/db/schema";
 import { toDocx } from "@/lib/export/docx";
 import { toSrt, toVtt } from "@/lib/export/subtitles";
 import { safeFilename, toMarkdown, toTxt, type ExportMeta } from "@/lib/export/text";
-import { bestText, loadItem, timedWords } from "@/lib/items";
+import { bestText, loadItem, subtitleWords } from "@/lib/items";
 import { unauthorized } from "@/lib/api";
 import { requireApiUser } from "@/lib/session";
 
@@ -120,7 +120,7 @@ async function renderOne(
       return new Uint8Array(await toDocx(text, meta));
     case "srt":
     case "vtt": {
-      const words = timedWords(loaded.stages);
+      const words = subtitleWords(loaded.stages);
       if (words.length === 0) return null;
       return format === "srt" ? toSrt(words) : toVtt(words);
     }

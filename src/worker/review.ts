@@ -1,5 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
+import { ConfigError } from "@/lib/errors";
 import { auditLog, edits, glossary, items, projects, transcripts } from "@/db/schema";
 import { isReviewConfigured } from "@/lib/review/provider";
 import { reviewTranscript, unresolvedSpans } from "@/lib/review/pipeline";
@@ -25,7 +26,7 @@ export async function reviewItem(itemId: string): Promise<void> {
 
   const local = project.profile === "local_only";
   if (!isReviewConfigured(local)) {
-    throw new Error(
+    throw new ConfigError(
       local
         ? "وضع «مشروع خاص» يحتاج Ollama — اضبط OLLAMA_BASE_URL وشغّله."
         : "لا مفتاح GEMINI_API_KEY — المراجعة تحتاجه.",

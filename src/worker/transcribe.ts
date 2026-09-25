@@ -3,7 +3,7 @@ import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, glossary, items, projects, segments, transcripts } from "@/db/schema";
 import { tidyOutput } from "@/lib/arabic";
-import { QuotaExhaustedError } from "@/lib/errors";
+import { ConfigError, QuotaExhaustedError } from "@/lib/errors";
 import { extractSegment, readAndDiscard } from "@/lib/media/ffmpeg";
 import { providersFor, runProvider } from "@/lib/providers/registry";
 import type { TranscriptionProvider } from "@/lib/providers/types";
@@ -40,7 +40,7 @@ export async function transcribeItem(itemId: string): Promise<void> {
 
   const engines = providersFor(project.profile);
   if (engines.length === 0) {
-    throw new Error(
+    throw new ConfigError(
       project.profile === "local_only"
         ? "وضع «مشروع خاص» يحتاج محرّكًا محليًا، ولا محرّك محلي مهيّأ بعد."
         : "لا مفاتيح مزوّدين مضبوطة. راجع GROQ_API_KEY و GEMINI_API_KEY.",

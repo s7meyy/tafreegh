@@ -18,3 +18,16 @@ export class QuotaExhaustedError extends Error {
     this.name = "QuotaExhaustedError";
   }
 }
+
+/**
+ * خطأ إعداد: مفتاح مفقود، ميزة معطّلة، محرّك غير مثبّت.
+ *
+ * لا يُصلحه التكرار، فيفشل فورًا برسالته بدل ثلاث محاولات يبقى
+ * المقطع خلالها على «التفريغ» دقائق بلا تفسير.
+ */
+export class ConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigError";
+  }
+}

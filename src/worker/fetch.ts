@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
+import { ConfigError } from "@/lib/errors";
 import { auditLog, items } from "@/db/schema";
 import { env } from "@/lib/env";
 import { enqueuePrepare } from "@/lib/queue";
@@ -27,7 +28,7 @@ export async function fetchItem(itemId: string): Promise<void> {
   if (!item) throw new Error(`المقطع ${itemId} غير موجود`);
 
   if (!env().ENABLE_YOUTUBE) {
-    throw new Error("جلب الروابط معطّل. فعّله بـ ENABLE_YOUTUBE=true.");
+    throw new ConfigError("جلب الروابط معطّل. فعّله بـ ENABLE_YOUTUBE=true.");
   }
   if (!item.sourceUrl) throw new Error("لا رابط لهذا المقطع.");
 
