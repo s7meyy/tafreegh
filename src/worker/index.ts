@@ -40,7 +40,7 @@ async function sweep() {
 
 function startWorker(stage: Stage, handle: (itemId: string) => Promise<void>) {
   const worker = new Worker(
-    `tafreegh:${stage}`,
+    `tafreegh-${stage}`,
     async (job: Job<{ itemId: string }>, token?: string) => {
       const { itemId } = job.data;
       try {

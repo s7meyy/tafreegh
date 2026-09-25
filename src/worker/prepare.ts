@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
@@ -31,11 +31,21 @@ export async function prepareItem(itemId: string): Promise<void> {
     .set({ status: "preparing", currentStage: "prepare", errorMessage: null })
     .where(eq(items.id, itemId));
 
-  const info = await probe(item.mediaPath);
+  /**
+   * المصدر هو `source.*` في مجلد المقطع، لا `mediaPath`.
+   *
+   * بعد نجاح التحضير يشير `mediaPath` إلى `normalized.wav`. فلو أُعيدت
+   * المهمة (انقطاع، أو فشل مرحلة لاحقة) لحاول ffmpeg تطبيع الملف
+   * المطبَّع فوق نفسه وأبى: «cannot edit existing files in-place».
+   * التحضير يجب أن يُعاد بأمان مهما كانت حالة المقطع.
+   */
+  const dir = dirname(item.mediaPath);
+  const sourcePath = await findSource(dir, item.mediaPath);
+  const info = await probe(sourcePath);
 
-  const wavPath = join(dirname(item.mediaPath), "normalized.wav");
-  await mkdir(dirname(wavPath), { recursive: true });
-  await normalizeToWav(item.mediaPath, wavPath);
+  const wavPath = join(dir, "normalized.wav");
+  await mkdir(dir, { recursive: true });
+  await normalizeToWav(sourcePath, wavPath);
 
   const silences = await detectSilence(wavPath);
   const plans = planSegments(Math.round(info.durationSec * 1000), silences);
@@ -76,4 +86,11 @@ export async function prepareItem(itemId: string): Promise<void> {
   });
 
   await enqueueTranscribe(itemId);
+}
+
+/** الملف الأصلي في مجلد المقطع؛ وإن لم يوجد فالمسار المسجّل كما هو. */
+async function findSource(dir: string, fallback: string): Promise<string> {
+  const entries = await readdir(dir).catch(() => [] as string[]);
+  const source = entries.find((f) => f.startsWith("source."));
+  return source ? join(dir, source) : fallback;
 }

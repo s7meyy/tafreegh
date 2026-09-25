@@ -25,7 +25,7 @@ const queues = new Map<Stage, Queue>();
 export function queueFor(stage: Stage): Queue {
   let queue = queues.get(stage);
   if (!queue) {
-    queue = new Queue(`tafreegh:${stage}`, {
+    queue = new Queue(`tafreegh-${stage}`, {
       connection: getRedis(),
       defaultJobOptions: {
         attempts: 3,
@@ -58,32 +58,43 @@ export function concurrencyFor(stage: Stage): number {
   }
 }
 
-/** إدراج مقطع في أول الخط. الاسم يمنع ازدواج المهمة للمقطع نفسه. */
-export async function enqueueFetch(itemId: string): Promise<void> {
-  await queueFor("fetch").add("fetch", { itemId }, { jobId: `fetch:${itemId}` });
+/**
+ * إدراج مقطع في مرحلة.
+ *
+ * معرّف المهمة ثابت (`مرحلة-مقطع`) ليمنع ازدواج المهمة للمقطع نفسه.
+ * لكن BullMQ يحتفظ بالمهمة الفاشلة أيامًا، ويرفض بصمتٍ إضافة مهمة
+ * بمعرّف موجود — فكانت إعادة المحاولة بعد فشل تُبتلع بلا أثر، ويبقى
+ * المقطع عالقًا حتى تُكنس المهمة القديمة. لذلك تُزال المهمة المنتهية
+ * (فاشلة أو مكتملة) قبل الإضافة؛ أما الجارية أو المنتظرة فتبقى، وهذا
+ * هو منع الازدواج المقصود.
+ *
+ * ملاحظة: `:` ممنوع في أسماء الطوابير ومعرّفات المهام معًا.
+ */
+export async function enqueue(
+  stage: Stage,
+  itemId: string,
+  options: { delay?: number } = {},
+): Promise<void> {
+  const queue = queueFor(stage);
+  const jobId = `${stage}-${itemId}`;
+
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === "failed" || state === "completed") {
+      await existing.remove();
+    } else {
+      return; // منتظرة أو جارية أو مؤجّلة — لا نضاعفها
+    }
+  }
+
+  await queue.add(stage, { itemId }, { jobId, ...options });
 }
 
-export async function enqueuePrepare(itemId: string): Promise<void> {
-  await queueFor("prepare").add("prepare", { itemId }, { jobId: `prepare:${itemId}` });
-}
-
-export async function enqueueTranscribe(itemId: string): Promise<void> {
-  await queueFor("transcribe").add(
-    "transcribe",
-    { itemId },
-    { jobId: `transcribe:${itemId}` },
-  );
-}
-
-export async function enqueueReview(itemId: string): Promise<void> {
-  await queueFor("review").add("review", { itemId }, { jobId: `review:${itemId}` });
-}
-
-export async function enqueueCleanup(itemId: string): Promise<void> {
-  await queueFor("cleanup").add(
-    "cleanup",
-    { itemId },
-    // نمهل قليلًا: قد يكون المستخدم ما زال يستمع بعد ضغط «اعتماد».
-    { jobId: `cleanup:${itemId}`, delay: 60_000 },
-  );
-}
+export const enqueueFetch = (itemId: string) => enqueue("fetch", itemId);
+export const enqueuePrepare = (itemId: string) => enqueue("prepare", itemId);
+export const enqueueTranscribe = (itemId: string) => enqueue("transcribe", itemId);
+export const enqueueReview = (itemId: string) => enqueue("review", itemId);
+/** نمهل قليلًا: قد يكون المستخدم ما زال يستمع بعد ضغط «اعتماد». */
+export const enqueueCleanup = (itemId: string) =>
+  enqueue("cleanup", itemId, { delay: 60_000 });
