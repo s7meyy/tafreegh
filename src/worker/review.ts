@@ -3,8 +3,7 @@ import { db } from "@/db";
 import { env } from "@/lib/env";
 import { ConfigError } from "@/lib/errors";
 import { auditLog, edits, glossary, items, projects, transcripts } from "@/db/schema";
-import { toParagraphs } from "@/lib/review/apply";
-import { applyGlossaryVariants } from "@/lib/review/glossary";
+import { composeText, prepareDocument } from "@/lib/review/document";
 import { isReviewConfigured } from "@/lib/review/provider";
 import { reviewTranscript, unresolvedSpans } from "@/lib/review/pipeline";
 import { diffTranscripts } from "@/lib/transcript/diff";
@@ -73,10 +72,10 @@ export async function reviewItem(itemId: string): Promise<void> {
     .from(glossary)
     .where(eq(glossary.projectId, project.id));
 
-  // الأشكال الخاطئة المعلومة تُصحَّح آليًا قبل النموذج: بلا حصة، وبلا
-  // احتمال خطأ، ويبقى للنموذج ما لا يعرفه المستخدم مسبقًا.
-  const glossaryPass = applyGlossaryVariants(toParagraphs(primary.text), terms);
-  const startText = glossaryPass.paragraphs.join("\n\n");
+  // الفقرات تُبنى من الكلمات لا من النصّ: بها يُعرف موضع كل كلمة،
+  // فيقع الدليل والتعديل في موضعهما لا على أول تكرار. والأشكال
+  // الخاطئة المعلومة تُصحَّح آليًا قبل النموذج: بلا حصة، وبلا احتمال خطأ.
+  const doc = prepareDocument(primaryWords, terms);
 
   await db
     .update(items)
@@ -84,8 +83,9 @@ export async function reviewItem(itemId: string): Promise<void> {
     .where(eq(items.id, itemId));
 
   const output = await reviewTranscript({
-    text: startText,
+    paragraphs: doc.paragraphs,
     words: primaryWords,
+    positions: doc.positions,
     disagreements,
     glossary: terms.map((t) => t.term),
     mode: project.transcriptionMode,
@@ -103,7 +103,7 @@ export async function reviewItem(itemId: string): Promise<void> {
       stage: "review",
       engine: reviewEngine,
       model: "review",
-      text: output.reviewedText,
+      text: composeText(output.reviewed, doc.layout, project.speakers),
       wordsJson: null,
       avgConfidence: null,
     },
@@ -112,16 +112,18 @@ export async function reviewItem(itemId: string): Promise<void> {
       stage: "audit",
       engine: reviewEngine,
       model: "audit",
-      text: output.auditedText,
+      text: composeText(output.audited, doc.layout, project.speakers),
       wordsJson: null,
       avgConfidence: null,
     },
   ]);
 
   // سجل التعديلات مع حكم التدقيق على كل واحد — مادة تبويب «التعديلات».
-  if (glossaryPass.edits.length > 0) {
+  const paragraphStart = (para: number) => doc.layout.paragraphs[para - 1]?.startMs ?? null;
+
+  if (doc.glossaryEdits.length > 0) {
     await db.insert(edits).values(
-      glossaryPass.edits.map((e) => ({
+      doc.glossaryEdits.map((e) => ({
         itemId,
         fromStage: "review" as const,
         paragraph: e.para,
@@ -131,30 +133,35 @@ export async function reviewItem(itemId: string): Promise<void> {
         confidence: 1,
         verdict: "accepted" as const,
         verdictNote: "تصحيح آلي من مسرد المشروع",
+        startMs: paragraphStart(e.para),
       })),
     );
   }
 
   if (output.proposed.length > 0) {
     // كل تعديل مقترح بحكمه ومَن حكم: الحارس (فحص آلي في الكود) أم
-    // المدقّق (نموذج). الخلط بينهما يوهم أن النموذج رفض ما رفضه الكود.
-    const key = (e: { para: number; from: string; to: string }) => `${e.para}|${e.from}|${e.to}`;
-    const kept = new Set(output.finalEdits.map(key));
-    const guarded = new Map(output.rejectedByGuard.map((r) => [key(r.edit), r.message]));
+    // المدقّق (نموذج). الربط بالرقم لا بالنصّ: التعديل نفسه يتكرّر
+    // حين تتكرّر الكلمة، فالربط بالنصّ يخلط أحكامها.
+    const kept = new Map(output.finalEdits.map((e) => [e.id, e]));
+    const guarded = new Map(output.rejectedByGuard.map((r) => [r.edit.id, r.message]));
+    const located = new Map(output.reviewedEdits.map((e) => [e.id, e]));
 
     await db.insert(edits).values(
       output.proposed.map((e) => {
-        const guardNote = guarded.get(key(e));
+        const final = kept.get(e.id);
+        const guardNote = final ? undefined : guarded.get(e.id);
         return {
           itemId,
           fromStage: "review" as const,
           paragraph: e.para,
           before: e.from,
-          after: e.to,
+          after: final?.to ?? e.to,
           reason: e.reason,
           confidence: e.confidence ?? null,
-          verdict: kept.has(key(e)) ? ("accepted" as const) : ("rejected" as const),
-          verdictNote: guardNote ? `الحارس: ${guardNote}` : kept.has(key(e)) ? null : "المدقّق",
+          verdict: final ? ("accepted" as const) : ("rejected" as const),
+          verdictNote: guardNote ? `الحارس: ${guardNote}` : final ? null : "المدقّق",
+          startMs: (final ?? located.get(e.id))?.startMs ?? null,
+          endMs: (final ?? located.get(e.id))?.endMs ?? null,
         };
       }),
     );

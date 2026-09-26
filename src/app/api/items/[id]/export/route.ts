@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { toDocx } from "@/lib/export/docx";
 import { toSrt, toVtt } from "@/lib/export/subtitles";
 import { safeFilename, toMarkdown, toTxt, type ExportMeta } from "@/lib/export/text";
-import { bestText, loadItem, subtitleWords } from "@/lib/items";
+import { bestText, exportMeta, loadItem, subtitleWords } from "@/lib/items";
 import { unauthorized } from "@/lib/api";
 import { requireApiUser } from "@/lib/session";
 
@@ -46,13 +46,7 @@ export async function GET(
     );
   }
 
-  const meta: ExportMeta = {
-    title: loaded.item.title,
-    project: loaded.project.name,
-    mode: loaded.project.transcriptionMode,
-    durationSec: loaded.item.durationSec,
-    approvedAt: loaded.item.approvedAt,
-  };
+  const meta = exportMeta(loaded, text);
 
   const { body, extension } = await render(format as Format, text, meta, loaded);
   if (!body) {
@@ -65,7 +59,8 @@ export async function GET(
     );
   }
 
-  const filename = safeFilename(meta.title, extension);
+  // المسودة تُعلَّم في اسم الملف كما في محتواه: لا تختلط بالمعتمد.
+  const filename = safeFilename(meta.draft ? `${meta.title} (مسودة)` : meta.title, extension);
   return new NextResponse(body as BodyInit, {
     headers: {
       "content-type": MIME[format as Format],

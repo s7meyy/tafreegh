@@ -6,9 +6,8 @@ import {
   Paragraph,
   TextRun,
 } from "docx";
-import { formatDate, formatDuration } from "@/lib/format";
-import { transcriptionModeLabel } from "@/lib/labels";
-import type { ExportMeta } from "./text";
+import { clock } from "@/lib/format";
+import { metaLines, type ExportMeta } from "./text";
 
 /**
  * مستند Word.
@@ -18,11 +17,14 @@ import type { ExportMeta } from "./text";
  * مستوى المستند لا يكفي، فكل فقرة تحمله.
  */
 export async function toDocx(text: string, meta: ExportMeta): Promise<Buffer> {
-  const paragraphs = text
-    .trim()
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter(Boolean);
+  const paragraphs = meta.timeline?.length
+    ? meta.timeline
+    : text
+        .trim()
+        .split(/\n\s*\n/)
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .map((body) => ({ body, speaker: null, startMs: null }));
 
   const doc = new Document({
     styles: {
@@ -57,7 +59,14 @@ export async function toDocx(text: string, meta: ExportMeta): Promise<Buffer> {
               new Paragraph({
                 bidirectional: true,
                 alignment: AlignmentType.JUSTIFIED,
-                children: [new TextRun({ text: p })],
+                children: [
+                  // التوقيت يدلّ القارئ على موضع الفقرة في التسجيل
+                  ...(p.startMs != null
+                    ? [new TextRun({ text: `${clock(p.startMs)}  `, size: 18, color: "888888" })]
+                    : []),
+                  ...(p.speaker ? [new TextRun({ text: `${p.speaker}: `, bold: true })] : []),
+                  new TextRun({ text: p.body }),
+                ],
               }),
           ),
         ],
@@ -66,14 +75,4 @@ export async function toDocx(text: string, meta: ExportMeta): Promise<Buffer> {
   });
 
   return Packer.toBuffer(doc);
-}
-
-function metaLines(meta: ExportMeta): string[] {
-  const lines = [
-    `المجلد: ${meta.project}`,
-    `نمط التفريغ: ${transcriptionModeLabel[meta.mode] ?? meta.mode}`,
-  ];
-  if (meta.durationSec) lines.push(`المدة: ${formatDuration(meta.durationSec)}`);
-  if (meta.approvedAt) lines.push(`اعتُمد في: ${formatDate(meta.approvedAt)}`);
-  return lines;
 }

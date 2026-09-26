@@ -36,3 +36,12 @@ export function formatDate(d: Date | string | null | undefined): string {
   if (!d) return "—";
   return dateFormatter.format(typeof d === "string" ? new Date(d) : d);
 }
+
+/** توقيت داخل المقطع: ‏3:05 أو ‏1:03:05. */
+export function clock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}

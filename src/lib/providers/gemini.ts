@@ -75,9 +75,10 @@ export class GeminiProvider implements TranscriptionProvider {
       );
     }
 
+    const turns = parseTurns(text);
     return {
-      text: text.trim(),
-      words: spreadWords(text.trim(), input.audioSeconds),
+      text: turns.map((t) => t.text).join(" "),
+      words: spreadWords(turns, input.audioSeconds),
       engine: this.name,
       model: this.model,
       audioSeconds: input.audioSeconds,
@@ -95,6 +96,7 @@ function buildPrompt(glossary?: string[]): string {
     "- لا تخترع كلامًا للمقاطع غير الواضحة؛ اكتب مكانها [غير واضح].",
     "- استعمل الترقيم العربي: ، ؛ ؟",
     "- أخرج النصّ وحده بلا أي مقدمة ولا عناوين ولا علامات تنسيق.",
+    "- إن تعدّد المتحدثون فابدأ كل مداخلة بسطر جديد أوله رقم المتحدث بين قوسين: [1] أو [2]… بترتيب ظهورهم. وإن كان المتحدث واحدًا فلا ترقّم.",
   ];
 
   if (glossary?.length) {
@@ -108,23 +110,45 @@ function buildPrompt(glossary?: string[]): string {
   return lines.join("\n");
 }
 
+const TURN = /^\s*\[(?:م|متحدث\s*)?(\d{1,2})\]\s*/;
+
+/** مداخلات المتحدثين كما رقّمها النموذج. بلا أرقام: مداخلة واحدة بلا متحدث. */
+export function parseTurns(text: string): { speaker?: string; text: string }[] {
+  const turns: { speaker?: string; text: string }[] = [];
+  for (const line of text.split(/\n+/)) {
+    const m = line.match(TURN);
+    const body = (m ? line.slice(m[0].length) : line).trim();
+    if (m) turns.push({ speaker: m[1], text: body });
+    else if (body && turns.length > 0) turns[turns.length - 1]!.text += ` ${body}`;
+    else if (body) turns.push({ text: body });
+  }
+  return turns.filter((t) => t.text);
+}
+
 /**
  * توزيع التوقيت على الكلمات بالتناسب مع طولها.
  * تقريب مقصود: دوره المحاذاة مع المحرّك الأول لا التوقيت الدقيق.
  */
-function spreadWords(text: string, audioSeconds: number): Word[] {
-  const tokens = text.split(/\s+/).filter(Boolean);
+function spreadWords(turns: { speaker?: string; text: string }[], audioSeconds: number): Word[] {
+  const tokens = turns.flatMap((t) =>
+    t.text
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((text) => ({ text, speaker: t.speaker })),
+  );
   if (tokens.length === 0) return [];
 
   const totalMs = Math.max(1, Math.round(audioSeconds * 1000));
-  const totalChars = tokens.reduce((s, t) => s + t.length, 0);
+  const totalChars = tokens.reduce((s, t) => s + t.text.length, 0);
 
   let cursor = 0;
   return tokens.map((token) => {
-    const share = Math.round((token.length / totalChars) * totalMs);
+    const share = Math.round((token.text.length / totalChars) * totalMs);
     const startMs = cursor;
     cursor = Math.min(totalMs, cursor + share);
-    return { text: token, startMs, endMs: cursor };
+    return token.speaker
+      ? { text: token.text, startMs, endMs: cursor, speaker: token.speaker }
+      : { text: token.text, startMs, endMs: cursor };
   });
 }
 

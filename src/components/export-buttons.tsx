@@ -11,10 +11,17 @@ const FORMATS = [
  * روابط عادية لا نداءات fetch: المتصفح يتولّى التنزيل وحده، ويعمل
  * الزرّ بالنقر الأوسط وبفتح في تبويب جديد كما يتوقّع المستخدم.
  */
-export function ExportButtons({ itemId }: { itemId: string }) {
+export function ExportButtons({ itemId, approved }: { itemId: string; approved: boolean }) {
   return (
     <section className="space-y-3">
-      <h2 className="font-semibold">التصدير</h2>
+      <div>
+        <h2 className="font-semibold">التصدير</h2>
+        {!approved && (
+          <p className="mt-1 text-sm text-warn">
+            لم يُعتمد النصّ بعد — ما تصدّره الآن مسودة، ويُكتب ذلك في الملف واسمه.
+          </p>
+        )}
+      </div>
       <ul className="flex flex-wrap gap-2">
         {FORMATS.map((format) => (
           <li key={format.key}>

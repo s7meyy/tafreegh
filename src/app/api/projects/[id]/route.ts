@@ -11,6 +11,7 @@ const schema = z.object({
   description: z.string().trim().max(1000).nullable().optional(),
   transcriptionMode: z.enum(["verbatim", "clean", "formal"]).optional(),
   profile: z.enum(["free_cloud", "local_only"]).optional(),
+  speakers: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
   /** المسرد يُرسَل كاملًا ويستبدل القائمة السابقة */
   glossary: z
     .array(

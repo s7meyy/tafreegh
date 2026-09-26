@@ -52,17 +52,18 @@ function dropHamza(word: string): string {
   return word.replace(/^[أإ]/, "ا").replace(/^(ال|و|ب|ل|ف)[أإ]/, "$1ا");
 }
 
-function wordsInChunk(input: TranscribeInput): { word: Word; index: number }[] {
+function wordsInChunk(input: TranscribeInput): { word: Word; index: number; speaker?: string }[] {
   const offset = input.offsetMs ?? 0;
   const end = offset + input.audioSeconds * 1000;
   const script = demoScript();
-  const out: { word: Word; index: number }[] = [];
+  const out: { word: Word; index: number; speaker?: string }[] = [];
 
   script.forEach((w, index) => {
     const mid = (w.startMs + w.endMs) / 2;
     if (mid < offset || mid >= end) return;
     out.push({
       index,
+      speaker: w.speaker,
       word: {
         text: w.text,
         startMs: w.startMs - offset,
@@ -158,8 +159,11 @@ export class DemoEngineB implements TranscriptionProvider {
 
   async transcribe(input: TranscribeInput): Promise<TranscriptResult> {
     const out: Word[] = [];
+    // Gemini يرقّم المتحدثين في كل مقطع من جديد بترتيب ظهورهم — فرقم
+    // المتحدث في المقطع الثاني لا يوافق بالضرورة رقمه في الأول.
+    const numbering = new Map<string, string>();
 
-    for (const { word, index } of wordsInChunk(input)) {
+    for (const { word, index, speaker } of wordsInChunk(input)) {
       const r = chance(`b:${index}`);
       if (r > 0.975) continue; // يُسقط كلمة أحيانًا
 
@@ -168,7 +172,12 @@ export class DemoEngineB implements TranscriptionProvider {
       let text = ENGINE_B_RENDERS[bare] ?? bare;
       if (text === bare && r < 0.04) text = dropHamza(bare);
 
-      out.push({ ...word, text: text + punct });
+      let label: string | undefined;
+      if (speaker) {
+        if (!numbering.has(speaker)) numbering.set(speaker, String(numbering.size + 1));
+        label = numbering.get(speaker);
+      }
+      out.push({ ...word, text: text + punct, ...(label ? { speaker: label } : {}) });
     }
 
     return result(this.name, this.model, out, input.audioSeconds);

@@ -53,16 +53,65 @@ function joinAt(left: Word[], right: Word[], plan: SegmentPlan): Word[] {
 
   const anchor = longestCommonRun(tokensOf(tail), tokensOf(head));
   if (anchor && anchor.length >= MIN_ANCHOR) {
+    const pairs: [Word, Word][] = [];
+    for (let k = 0; k < anchor.length; k++) {
+      pairs.push([tail[anchor.aStart + k]!, head[anchor.bStart + k]!]);
+    }
+    const aligned = relabelSpeakers(left, right, pairs);
     // نحتفظ بكلمات اليسار حتى بداية المرساة، ثم نكمل من اليمين عندها.
-    return [...left.slice(0, leftTailFrom + anchor.aStart), ...right.slice(anchor.bStart)];
+    return [...left.slice(0, leftTailFrom + anchor.aStart), ...aligned.slice(anchor.bStart)];
   }
 
   // لا مطابقة — نقصّ عند منتصف التداخل. أضعف، لكنه لا يفقد كلامًا.
   const cutMs = overlapStart + plan.overlapMs / 2;
+  const aligned = relabelSpeakers(left, right, []);
   return [
     ...left.filter((w) => w.endMs <= cutMs),
-    ...right.filter((w) => w.startMs > cutMs),
+    ...aligned.filter((w) => w.startMs > cutMs),
   ];
+}
+
+/**
+ * توحيد أرقام المتحدثين بين مقطعين.
+ *
+ * المحرّك يرقّم المتحدثين في كل مقطع من جديد: «المتحدث 1» في الثاني قد
+ * يكون «المتحدث 2» في الأول. منطقة التداخل كلامٌ واحد سمعه المقطعان،
+ * فمن تقابُل كلماتها يُعرف أيّ رقم يقابل أيّ رقم. وما لم يظهر في
+ * التداخل يأخذ أول رقم سابق لم يُقابَل بعد.
+ */
+function relabelSpeakers(left: readonly Word[], right: Word[], pairs: [Word, Word][]): Word[] {
+  if (!right.some((w) => w.speaker)) return right;
+
+  const votes = new Map<string, Map<string, number>>();
+  for (const [l, r] of pairs) {
+    if (!l.speaker || !r.speaker) continue;
+    const row = votes.get(r.speaker) ?? new Map<string, number>();
+    row.set(l.speaker, (row.get(l.speaker) ?? 0) + 1);
+    votes.set(r.speaker, row);
+  }
+
+  const mapping = new Map<string, string>();
+  const used = new Set<string>();
+  for (const [label, row] of votes) {
+    const best = [...row].sort((a, b) => b[1] - a[1])[0];
+    if (best && !used.has(best[0])) {
+      mapping.set(label, best[0]);
+      used.add(best[0]);
+    }
+  }
+
+  const known = [...new Set(left.map((w) => w.speaker).filter(Boolean))] as string[];
+  const fresh = [...new Set(right.map((w) => w.speaker).filter(Boolean))] as string[];
+  let next = known.length + 1;
+  for (const label of fresh) {
+    if (mapping.has(label)) continue;
+    const free = known.find((k) => !used.has(k));
+    const target = free ?? String(next++);
+    mapping.set(label, target);
+    used.add(target);
+  }
+
+  return right.map((w) => (w.speaker ? { ...w, speaker: mapping.get(w.speaker) ?? w.speaker } : w));
 }
 
 function tokensOf(words: readonly Word[]): string[] {

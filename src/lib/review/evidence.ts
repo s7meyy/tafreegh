@@ -1,6 +1,9 @@
+import { normalizeForCompare } from "@/lib/arabic";
+import { sameNumber } from "@/lib/arabic-numbers";
 import type { DiffSpan } from "@/lib/transcript/diff";
+import type { WordPosition } from "@/lib/transcript/layout";
 import type { Word } from "@/lib/transcript/types";
-import type { EvidenceSpan } from "./types";
+import type { EvidenceSpan, Severity } from "./types";
 
 /**
  * بناء مواضع الأدلة.
@@ -8,108 +11,191 @@ import type { EvidenceSpan } from "./types";
  * دليلان مجانيان: كلمة قال المحرّك إنه غير واثق منها، وموضع اختلف فيه
  * المحرّكان. ما عداهما لا يُعرض على المراجعة أصلًا (§2.1) — وما لا
  * يُعرض لا يُعدَّل، بحكم `applyEdits`.
+ *
+ * كل دليل مربوط بموضعه في نصّ فقرته، مأخوذًا من موضع كلماته — لا
+ * بالبحث عن نصّه. البحث بالنصّ يصيب أول تكرار للكلمة، وفي العربية
+ * تتكرر «الله» و«من» و«في» في كل فقرة.
  */
 
 /** دون هذه الثقة تُعدّ الكلمة مشكوكًا فيها. */
 export const CONFIDENCE_FLOOR = 0.6;
+/** دون هذه تُعدّ الكلمة شديدة الشك. */
+const CONFIDENCE_LOW = 0.45;
 
 export interface BuildEvidenceInput {
   paragraphs: readonly string[];
   /** كلمات المحرّك المرجع، بترتيب النصّ */
   words: readonly Word[];
-  /** مواضع اختلاف المحرّكين */
+  /** موضع كل كلمة في الفقرات؛ `null` لكلمة لم يعد لها موضع (حسمها المسرد) */
+  positions: readonly (WordPosition | null)[];
+  /** مواضع اختلاف المحرّكين، بفهارس كلمات المرجع */
   disagreements?: readonly DiffSpan[];
   confidenceFloor?: number;
 }
 
 export function buildEvidence(input: BuildEvidenceInput): EvidenceSpan[] {
   const floor = input.confidenceFloor ?? CONFIDENCE_FLOOR;
-  const locate = paragraphLocator(input.paragraphs);
   const spans: EvidenceSpan[] = [];
-  const seen = new Set<string>();
+  /** فهارس الكلمات التي غطّاها دليل اختلاف — فلا تُعرض مرتين */
+  const covered = new Set<number>();
 
-  const push = (span: EvidenceSpan) => {
-    // موضع قام عليه الدليلان معًا يُعرض مرة واحدة.
-    const key = `${span.para}|${span.text}|${span.kind}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    spans.push(span);
-  };
-
-  for (const word of input.words) {
-    if (word.confidence === undefined || word.confidence >= floor) continue;
-    const para = locate(word.text);
-    if (para) {
-      push({
-        para,
-        text: word.text,
-        kind: "low_confidence",
-        startMs: word.startMs,
-        endMs: word.endMs,
-      });
+  const range = (from: number, to: number) => {
+    let first: WordPosition | null = null;
+    let last: WordPosition | null = null;
+    for (let i = from; i < to; i++) {
+      const p = input.positions[i];
+      // كلمة حسمها المسرد داخل الموضع: الموضع كله محسوم أو ملتبس، فبديل
+      // المحرّك الآخر يشمل المصطلح ولا يصلح لما بقي منه.
+      if (!p) return null;
+      if (first && p.para !== first.para) break; // لا يعبر الدليل حدّ فقرة
+      first ??= p;
+      last = p;
     }
-  }
+    return first && last ? { para: first.para, start: first.start, end: last.end } : null;
+  };
 
   for (const diff of input.disagreements ?? []) {
     // الإضافة من المحرّك الثاني لا نصّ لها في المرجع، فلا موضع لها.
-    if (!diff.a.trim()) continue;
-    const para = locate(diff.a);
-    if (para) {
-      push({
-        para,
-        text: diff.a,
-        kind: "engine_disagreement",
-        alternative: diff.b,
-        startMs: diff.startMs,
-        endMs: diff.endMs,
-      });
+    if (diff.aEnd <= diff.aStart) continue;
+    // «عشرين» و«20»: كتابتان لعدد واحد، لا خلاف في السماع.
+    if (diff.b && sameNumber(diff.a, diff.b)) continue;
+    // «عبد الله» و«عبدالله»: فصلٌ ووصل، لا خلاف في السماع.
+    if (squash(diff.a) === squash(diff.b)) continue;
+
+    const where = range(diff.aStart, diff.aEnd);
+    if (!where) continue;
+
+    const weakWords: string[] = [];
+    for (let i = diff.aStart; i < diff.aEnd; i++) {
+      covered.add(i);
+      const w = input.words[i];
+      if (w?.confidence !== undefined && w.confidence < floor) {
+        weakWords.push(...normalizeForCompare(w.text).split(" ").filter(Boolean));
+      }
     }
+    const weak = weakWords.length > 0;
+
+    const omitted = !diff.b.trim();
+    const text = input.paragraphs[where.para - 1]!.slice(where.start, where.end);
+    const severity: Severity = weak ? "high" : omitted ? "low" : "medium";
+
+    spans.push({
+      id: 0,
+      para: where.para,
+      offset: where.start,
+      text,
+      kind: "engine_disagreement",
+      alternative: diff.b,
+      suggestion: suggest(text, diff.b, input.words.slice(diff.aStart, diff.aEnd), floor),
+      lowConfidence: weak,
+      weak: weakWords,
+      severity,
+      startMs: diff.startMs,
+      endMs: diff.endMs,
+    });
   }
 
+  input.words.forEach((word, i) => {
+    if (covered.has(i)) return;
+    if (word.confidence === undefined || word.confidence >= floor) return;
+    const where = range(i, i + 1);
+    if (!where) return;
+    spans.push({
+      id: 0,
+      para: where.para,
+      offset: where.start,
+      text: input.paragraphs[where.para - 1]!.slice(where.start, where.end),
+      kind: "low_confidence",
+      lowConfidence: true,
+      weak: normalizeForCompare(word.text).split(" ").filter(Boolean),
+      severity: word.confidence < CONFIDENCE_LOW ? "medium" : "low",
+      startMs: word.startMs,
+      endMs: word.endMs,
+    });
+  });
+
+  // بترتيب ورودها في النصّ — هكذا تُعرض على النموذج وعلى المستخدم.
+  spans.sort((a, b) => a.para - b.para || a.offset - b.offset);
+  spans.forEach((s, i) => (s.id = i + 1));
   return spans;
 }
 
-/**
- * يحدّد الفقرة التي ورد فيها نصّ ما.
- *
- * يتقدّم عبر الفقرات ولا يرجع: النصّ والكلمات على ترتيب واحد، فالبحث
- * من أول الفقرات لكل كلمة يعطي الفقرة الخطأ عند تكرار الكلمة — وهو
- * كثير في العربية.
- */
-function paragraphLocator(
-  paragraphs: readonly string[],
-): (needle: string) => number | null {
-  let cursor = 0;
-
-  return (needle) => {
-    const text = needle.trim();
-    if (!text) return null;
-
-    for (let i = cursor; i < paragraphs.length; i++) {
-      if (paragraphs[i]!.includes(text)) {
-        cursor = i;
-        return i + 1;
-      }
-    }
-    // لم نجده أمامنا — قد يكون التقدّم سبقه؛ نبحث فيما مضى دون تحريك المؤشر.
-    for (let i = 0; i < cursor; i++) {
-      if (paragraphs[i]!.includes(text)) return i + 1;
-    }
-    return null;
-  };
+/** نقل مواضع الكلمات عبر استبدالات المسرد. */
+export function remapPositions(
+  positions: readonly (WordPosition | null)[],
+  map: (para: number, start: number, end: number) => { start: number; end: number } | null,
+): (WordPosition | null)[] {
+  return positions.map((p) => {
+    if (!p) return null;
+    const moved = map(p.para, p.start, p.end);
+    return moved ? { para: p.para, ...moved } : null;
+  });
 }
 
-/** عرض الأدلة على النموذج: نصّ موجز يفهمه ولا يضيّع رموزًا. */
-export function formatEvidence(spans: readonly EvidenceSpan[]): string {
+/**
+ * عرض الأدلة على النموذج: موجز، وفي كلٍّ سياقه القريب — فالكلمة
+ * المكررة في الفقرة لا تُعرف بنصّها وحده.
+ */
+export function formatEvidence(
+  spans: readonly EvidenceSpan[],
+  paragraphs: readonly string[] = [],
+): string {
   if (spans.length === 0) return "لا مواضع مشكوك فيها.";
 
   return spans
     .map((span) => {
       const where = `[${span.para}]`;
+      const context = contextOf(paragraphs[span.para - 1], span);
+      const tail = context ? ` في: «${context}»` : "";
       if (span.kind === "engine_disagreement") {
-        return `${where} «${span.text}» — والمحرّك الآخر سمعها: «${span.alternative || "(لا شيء)"}»`;
+        return `${where} «${span.text}»${tail} — والمحرّك الآخر سمعها: «${span.alternative || "(لا شيء)"}»`;
       }
-      return `${where} «${span.text}» — ثقة المحرّك فيها منخفضة`;
+      return `${where} «${span.text}»${tail} — ثقة المحرّك فيها منخفضة`;
     })
     .join("\n");
+}
+
+function contextOf(paragraph: string | undefined, span: EvidenceSpan): string {
+  if (!paragraph) return "";
+  const before = paragraph.slice(0, span.offset).split(/\s+/).filter(Boolean).slice(-3);
+  const after = paragraph
+    .slice(span.offset + span.text.length)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 3);
+  return [...before, `⟦${span.text}⟧`, ...after].join(" ");
+}
+
+function squash(text: string): string {
+  return normalizeForCompare(text).replace(/\s+/g, "");
+}
+
+/**
+ * البديل المقترح للمستخدم في موضع اختلاف.
+ *
+ * بديل المحرّك الآخر كما هو يصلح حين يقابل الموضع كلمةً بكلمة. أما
+ * إن كان أقصر — أسقط المحرّك الآخر كلمة — فاستبداله يحذف كلامًا لم
+ * يُشكّ فيه. فنضع البديل مكان الكلمات المشكوك فيها وحدها ونُبقي
+ * جاراتها، وإن تفرّقت المشكوك فيها فلا اقتراح.
+ */
+function suggest(
+  text: string,
+  alternative: string,
+  words: readonly Word[],
+  floor: number,
+): string | undefined {
+  const alt = alternative.trim();
+  if (!alt) return undefined;
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const altCount = alt.split(/\s+/).length;
+  if (altCount >= tokens.length || tokens.length !== words.length) {
+    return altCount >= tokens.length ? alt : undefined;
+  }
+
+  const weak = words.map((w) => w.confidence !== undefined && w.confidence < floor);
+  const first = weak.indexOf(true);
+  const last = weak.lastIndexOf(true);
+  if (first === -1 || weak.slice(first, last + 1).includes(false)) return undefined;
+
+  return [...tokens.slice(0, first), alt, ...tokens.slice(last + 1)].join(" ");
 }

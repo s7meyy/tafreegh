@@ -106,6 +106,8 @@ export const projects = pgTable(
       .notNull()
       .default("clean"),
     profile: profileEnum("profile").notNull().default("free_cloud"),
+    /** أسماء المتحدثين بترتيب ظهورهم في المقاطع */
+    speakers: text("speakers").array().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -238,6 +240,9 @@ export const edits = pgTable(
     confidence: real("confidence"),
     verdict: editVerdictEnum("verdict").notNull().default("pending"),
     verdictNote: text("verdict_note"),
+    /** توقيت الموضع في الصوت — للاستماع إليه قبل الاعتماد */
+    startMs: integer("start_ms"),
+    endMs: integer("end_ms"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

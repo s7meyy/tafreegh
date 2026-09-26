@@ -1,10 +1,11 @@
 import type { DiffSpan } from "@/lib/transcript/diff";
+import type { WordPosition } from "@/lib/transcript/layout";
 import type { Word } from "@/lib/transcript/types";
-import { applyEdits, toParagraphs } from "./apply";
+import { applyEdits } from "./apply";
 import { buildEvidence } from "./evidence";
 import { proposeEdits, type TranscriptionMode } from "./stage2";
 import { applyVerdicts, auditEdits, type EditVerdict } from "./stage3";
-import type { EvidenceSpan, ProposedEdit, RejectedEdit } from "./types";
+import type { AppliedEdit, EvidenceSpan, ProposedEdit, RejectedEdit } from "./types";
 
 /**
  * المرحلتان الثانية والثالثة معًا.
@@ -16,8 +17,11 @@ import type { EvidenceSpan, ProposedEdit, RejectedEdit } from "./types";
  */
 
 export interface ReviewInput {
-  text: string;
+  /** الفقرات بعد تصحيح المسرد، بلا أسماء المتحدثين */
+  paragraphs: readonly string[];
   words: readonly Word[];
+  /** موضع كل كلمة في الفقرات */
+  positions: readonly (WordPosition | null)[];
   disagreements: readonly DiffSpan[];
   glossary: readonly string[];
   mode: TranscriptionMode;
@@ -26,33 +30,39 @@ export interface ReviewInput {
 }
 
 export interface ReviewOutput {
-  /** نصّ المرحلة الثانية */
-  reviewedText: string;
-  /** نصّ المرحلة الثالثة — المعتمد */
-  auditedText: string;
+  /** فقرات المرحلة الثانية */
+  reviewed: string[];
+  /** فقرات المرحلة الثالثة — المعتمدة */
+  audited: string[];
   evidence: EvidenceSpan[];
   proposed: ProposedEdit[];
   rejectedByGuard: RejectedEdit[];
   verdicts: EditVerdict[];
-  finalEdits: ProposedEdit[];
+  /** ما طبّقته المرحلة الثانية، بمواضعه — ومنه ما رفضه التدقيق لاحقًا */
+  reviewedEdits: AppliedEdit[];
+  finalEdits: AppliedEdit[];
 }
 
 export async function reviewTranscript(input: ReviewInput): Promise<ReviewOutput> {
-  const paragraphs = toParagraphs(input.text);
+  const paragraphs = input.paragraphs;
 
   const evidence = buildEvidence({
     paragraphs,
     words: input.words,
+    positions: input.positions,
     disagreements: input.disagreements,
   });
 
-  const proposed = await proposeEdits({
+  const suggested = await proposeEdits({
     paragraphs,
     evidence,
     glossary: input.glossary,
     mode: input.mode,
     local: input.local,
   });
+  // رقم لكل تعديل: به يُربط الحكم والرفض بالتعديل نفسه، لا بنصّه —
+  // فالتعديل نفسه يتكرّر حين تتكرّر الكلمة الخاطئة.
+  const proposed = suggested.map((e, i) => ({ ...e, id: i + 1 }));
 
   const guardOptions = { glossary: input.glossary, evidence };
   const stage2 = applyEdits(paragraphs, proposed, guardOptions);
@@ -69,12 +79,13 @@ export async function reviewTranscript(input: ReviewInput): Promise<ReviewOutput
   const stage3 = applyEdits(paragraphs, finalEdits, guardOptions);
 
   return {
-    reviewedText: stage2.text,
-    auditedText: stage3.text,
+    reviewed: stage2.paragraphs,
+    audited: stage3.paragraphs,
     evidence,
     proposed,
     rejectedByGuard: [...stage2.rejected, ...stage3.rejected],
     verdicts,
+    reviewedEdits: stage2.applied,
     finalEdits: stage3.applied,
   };
 }
@@ -84,6 +95,6 @@ export async function reviewTranscript(input: ReviewInput): Promise<ReviewOutput
  * في محرّر الاعتماد مع توقيتها ليصل إلى اللحظة بالضبط (§5 المرحلة 3).
  */
 export function unresolvedSpans(output: ReviewOutput): EvidenceSpan[] {
-  const settled = new Set(output.finalEdits.map((e) => `${e.para}|${e.from}`));
-  return output.evidence.filter((span) => !settled.has(`${span.para}|${span.text}`));
+  const settled = new Set(output.finalEdits.flatMap((e) => e.spanIds));
+  return output.evidence.filter((span) => !settled.has(span.id));
 }

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { bestText, loadItem, stageTexts } from "@/lib/items";
-import { formatDate, formatDuration } from "@/lib/format";
+import { clock, formatDate, formatDuration } from "@/lib/format";
 import {
   editReasonLabel,
   IN_PROGRESS_STATUSES,
@@ -11,11 +11,13 @@ import {
 } from "@/lib/labels";
 import { requireUser } from "@/lib/session";
 import { ApprovalEditor } from "@/components/approval-editor";
+import { AudioProvider, PlayButton } from "@/components/audio-spots";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { ItemActions } from "@/components/item-actions";
 import { ExportButtons } from "@/components/export-buttons";
 import { UnresolvedSpans } from "@/components/unresolved-spans";
 import { hasChanges, wordDiff, type DiffSegment } from "@/lib/transcript/word-diff";
+import { speakersIn, splitParagraphs } from "@/lib/transcript/speakers";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,9 @@ export default async function ItemPage({
   const stages = stageTexts(loaded.stages);
   const text = bestText(loaded.stages);
   const approved = Boolean(item.approvedAt);
+  // الصوت متاح للاستماع ما دام المقطع لم يُعتمد ولم تُحذف وسائطه
+  const audio = !approved && !item.mediaDeletedAt && Boolean(item.durationSec);
+  const spots = approved ? [] : loaded.unresolved;
 
   return (
     <div className="space-y-8">
@@ -66,6 +71,8 @@ export default async function ItemPage({
         </div>
       </header>
 
+      {IN_PROGRESS_STATUSES.has(item.status) && <StageSteps status={item.status} />}
+
       {item.errorMessage && (
         <p role="alert" className="rounded-xl border border-danger/40 bg-panel p-4 text-danger">
           {item.errorMessage}
@@ -77,22 +84,31 @@ export default async function ItemPage({
           لا نصّ بعد — المقطع ما زال في مرحلة {itemStatusLabel[item.status]}.
         </p>
       ) : (
-        <>
-          {!approved && <UnresolvedSpans spans={loaded.unresolved} />}
+        <AudioProvider itemId={item.id} enabled={audio}>
+          <div className="space-y-8">
+            <Summary
+              text={text}
+              applied={edits.filter((e) => e.verdict === "accepted").length}
+              spots={spots.length}
+            />
 
-          <ApprovalEditor
-            itemId={item.id}
-            initialText={text}
-            approved={approved}
-            approvedAt={item.approvedAt ? formatDate(item.approvedAt) : null}
-          />
+            {!approved && <UnresolvedSpans itemId={item.id} spans={spots} />}
 
-          <ExportButtons itemId={item.id} />
+            <ApprovalEditor
+              itemId={item.id}
+              initialText={text}
+              approved={approved}
+              approvedAt={item.approvedAt ? formatDate(item.approvedAt) : null}
+              spotIds={spots.map((s, i) => s.id ?? i + 1)}
+            />
 
-          <StageComparison stages={stages} />
+            <ExportButtons itemId={item.id} approved={approved} />
 
-          {edits.length > 0 && <EditsTable edits={edits} />}
-        </>
+            <StageComparison stages={stages} />
+
+            {edits.length > 0 && <EditsTable edits={edits} />}
+          </div>
+        </AudioProvider>
       )}
     </div>
   );
@@ -182,13 +198,89 @@ function DiffView({ segments }: { segments: DiffSegment[] }) {
   );
 }
 
+const STEPS = [
+  { key: "fetching", label: "الجلب" },
+  { key: "preparing", label: "التحضير" },
+  { key: "transcribing", label: "التفريغ" },
+  { key: "reviewing_1", label: "المراجعة" },
+  { key: "reviewing_2", label: "التدقيق" },
+  { key: "awaiting_approval", label: "اعتمادك" },
+] as const;
+
+/** أين وصل المقطع من مراحله — بدل كلمة حالة وحدها لا تقول كم بقي. */
+function StageSteps({ status }: { status: string }) {
+  const current = status === "queued" ? -1 : STEPS.findIndex((s) => s.key === status);
+  return (
+    <ol className="flex flex-wrap gap-2 text-sm" aria-label="مراحل المعالجة">
+      {STEPS.map((step, i) => {
+        const state = i < current ? "done" : i === current ? "now" : "next";
+        return (
+          <li
+            key={step.key}
+            aria-current={state === "now" ? "step" : undefined}
+            className={`flex min-h-9 items-center gap-2 rounded-full px-3 ${
+              state === "now"
+                ? "bg-brand text-white"
+                : state === "done"
+                  ? "bg-brand-soft text-ink"
+                  : "border border-line text-ink-soft"
+            }`}
+          >
+            <span aria-hidden>{state === "done" ? "✓" : i + 1}</span>
+            {step.label}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** خلاصة المقطع في سطر: ما يعرفه القارئ قبل أن يقرأ. */
+function Summary({ text, applied, spots }: { text: string; applied: number; spots: number }) {
+  const paragraphs = splitParagraphs(text);
+  const speakers = [...speakersIn(text)];
+  const words = text.split(/\s+/).filter(Boolean).length;
+  const facts = [
+    `${words.toLocaleString("ar")} كلمة`,
+    `${paragraphs.length.toLocaleString("ar")} فقرة`,
+    speakers.length > 0 ? `المتحدثون: ${speakers.join("، ")}` : null,
+    applied > 0 ? `${applied.toLocaleString("ar")} تصحيحًا آليًا` : null,
+    spots > 0 ? `${spots.toLocaleString("ar")} موضعًا للمراجعة` : null,
+  ].filter(Boolean);
+
+  return (
+    <p className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-ink-soft">
+      {facts.map((f, i) => (
+        <span key={i}>
+          {i > 0 && <span aria-hidden className="me-3">·</span>}
+          {f}
+        </span>
+      ))}
+    </p>
+  );
+}
+
 function verdictLabel(verdict: string, note: string | null): string {
   if (verdict === "accepted") return note ?? "أقرّه التدقيق";
   if (note?.startsWith("الحارس")) return `رفضه الحارس — ${note.replace(/^الحارس:\s*/, "")}`;
   return "رفضه التدقيق";
 }
 
-function EditsTable({ edits }: { edits: { id: string; paragraph: number; before: string; after: string; reason: string; verdict: string; verdictNote: string | null }[] }) {
+function EditsTable({
+  edits,
+}: {
+  edits: {
+    id: string;
+    paragraph: number;
+    before: string;
+    after: string;
+    reason: string;
+    verdict: string;
+    verdictNote: string | null;
+    startMs: number | null;
+    endMs: number | null;
+  }[];
+}) {
   return (
     <details className="rounded-xl border border-line bg-panel">
       <summary className="flex min-h-11 cursor-pointer items-center px-5 font-medium">
@@ -196,8 +288,11 @@ function EditsTable({ edits }: { edits: { id: string; paragraph: number; before:
       </summary>
       <ul className="divide-y divide-line border-t border-line">
         {edits.map((edit) => (
-          <li key={edit.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 p-4 text-sm">
-            <span className="text-ink-soft">فقرة {edit.paragraph}</span>
+          <li key={edit.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 p-4 text-sm">
+            <span className="text-ink-soft">
+              فقرة {edit.paragraph}
+              {edit.startMs != null && <span className="ltr-inline ms-2">{clock(edit.startMs)}</span>}
+            </span>
             <span className="line-through decoration-danger/60">{edit.before}</span>
             <span aria-hidden>←</span>
             <span className="font-medium">{edit.after || "(حُذف)"}</span>
@@ -209,6 +304,11 @@ function EditsTable({ edits }: { edits: { id: string; paragraph: number; before:
             >
               {verdictLabel(edit.verdict, edit.verdictNote)}
             </span>
+            {edit.reason !== "glossary" && (
+              <span className="ms-auto">
+                <PlayButton spot={`edit-${edit.id}`} startMs={edit.startMs} endMs={edit.endMs} />
+              </span>
+            )}
           </li>
         ))}
       </ul>

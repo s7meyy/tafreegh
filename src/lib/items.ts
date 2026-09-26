@@ -1,8 +1,10 @@
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, edits, items, projects, transcripts } from "@/db/schema";
+import type { ExportMeta } from "@/lib/export/text";
 import type { EvidenceSpan } from "@/lib/review/types";
 import { retime } from "@/lib/transcript/retime";
+import { speakersIn, splitParagraphs, splitSpeaker } from "@/lib/transcript/speakers";
 import type { Word } from "@/lib/transcript/types";
 
 /**
@@ -108,5 +110,52 @@ function primaryTranscript(stages: LoadedItem["stages"]) {
  * التصدير من الكلمات الخام وحدها كان يُخرج أخطاءً صُحّحت فعلًا.
  */
 export function subtitleWords(stages: LoadedItem["stages"]): Word[] {
-  return retime(bestText(stages), timedWords(stages));
+  return timedParagraphs(bestText(stages), timedWords(stages)).words;
+}
+
+/**
+ * النصّ المعتمد فقراتٍ بمتحدثيها وتوقيت بدايتها، وكلماته موقّتة.
+ *
+ * أسماء المتحدثين تُنزع قبل المحاذاة — ليست كلامًا قيل — ثم تُعاد
+ * صفةً لكلمات فقرتها، فلا تجمع بطاقة ترجمة كلام متحدثين.
+ */
+export function timedParagraphs(text: string, timed: readonly Word[]) {
+  const known = speakersIn(text);
+  const paragraphs = splitParagraphs(text).map((p) => splitSpeaker(p, known));
+  const flat = paragraphs.map((p) => p.body).join("\n\n");
+  const words = retime(flat, timed);
+
+  let cursor = 0;
+  const starts: (number | null)[] = [];
+  paragraphs.forEach((p, i) => {
+    const count = p.body.split(/\s+/).filter(Boolean).length;
+    starts.push(words[cursor]?.startMs ?? null);
+    const label = p.speaker ?? `§${i}`;
+    for (let k = cursor; k < cursor + count && k < words.length; k++) {
+      words[k] = { ...words[k]!, speaker: label };
+    }
+    cursor += count;
+  });
+
+  return { paragraphs, starts, words };
+}
+
+/** بيانات الملف المصدَّر: الترويسة، والمتحدثون، وتوقيت كل فقرة. */
+export function exportMeta(loaded: LoadedItem, text: string): ExportMeta {
+  const { paragraphs, starts } = timedParagraphs(text, timedWords(loaded.stages));
+  const speakers = [...new Set(paragraphs.map((p) => p.speaker).filter(Boolean))] as string[];
+  return {
+    title: loaded.item.title,
+    project: loaded.project.name,
+    mode: loaded.project.transcriptionMode,
+    durationSec: loaded.item.durationSec,
+    approvedAt: loaded.item.approvedAt,
+    draft: !loaded.item.approvedAt,
+    speakers,
+    timeline: paragraphs.map((p, i) => ({
+      speaker: p.speaker,
+      body: p.body,
+      startMs: starts[i] ?? null,
+    })),
+  };
 }

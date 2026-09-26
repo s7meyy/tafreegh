@@ -48,6 +48,7 @@ export default async function SettingsPage({
           name: project.name,
           transcriptionMode: project.transcriptionMode,
           profile: project.profile,
+          speakers: project.speakers,
           glossary: terms.map((t) => ({
             term: t.term,
             variants: t.variants,

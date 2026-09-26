@@ -2,14 +2,16 @@ import { join } from "node:path";
 import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, glossary, items, projects, segments, transcripts } from "@/db/schema";
-import { tidyOutput } from "@/lib/arabic";
 import { ConfigError, QuotaExhaustedError } from "@/lib/errors";
 import { extractSegment, readAndDiscard } from "@/lib/media/ffmpeg";
 import { providersFor, runProvider } from "@/lib/providers/registry";
 import type { TranscriptionProvider } from "@/lib/providers/types";
 import { enqueueReview } from "@/lib/queue";
 import { diffTranscripts, disagreementRate } from "@/lib/transcript/diff";
-import { mergeSegments, wordsToText, type SegmentTranscript } from "@/lib/transcript/merge";
+import { composeText } from "@/lib/review/document";
+import { layoutParagraphs } from "@/lib/transcript/layout";
+import { mergeSegments, type SegmentTranscript } from "@/lib/transcript/merge";
+import { transferSpeakers } from "@/lib/transcript/speakers";
 import type { Word } from "@/lib/transcript/types";
 
 /**
@@ -207,18 +209,37 @@ async function finalize(
     );
 
   const merged = new Map<string, Word[]>();
-  for (const [engineName, list] of byEngine) {
-    const engine = engines.find((e) => e.name === engineName);
-    const words = mergeSegments(list);
-    merged.set(engineName, words);
+  for (const [engineName, list] of byEngine) merged.set(engineName, mergeSegments(list));
 
+  // المتحدثون: من المحرّك الذي يميّزهم (Gemini) إلى غيره، بمحاذاة النصّين.
+  const labelled = [...merged.values()].find((w) => w.some((x) => x.speaker));
+  if (labelled) {
+    for (const [name, words] of merged) {
+      if (words !== labelled) merged.set(name, transferSpeakers(words, labelled));
+    }
+  }
+
+  const [owner] = await db
+    .select({ speakers: projects.speakers })
+    .from(items)
+    .innerJoin(projects, eq(projects.id, items.projectId))
+    .where(eq(items.id, itemId))
+    .limit(1);
+
+  for (const [engineName, words] of merged) {
+    const engine = engines.find((e) => e.name === engineName);
+    const layout = layoutParagraphs(words);
     await db.insert(transcripts).values({
       itemId,
       segmentId: null,
       stage: "transcribe",
       engine: engineName,
       model: engine?.model ?? "unknown",
-      text: tidyOutput(wordsToText(words)),
+      text: composeText(
+        layout.paragraphs.map((p) => p.text),
+        layout,
+        owner?.speakers ?? [],
+      ),
       wordsJson: words,
       avgConfidence: averageConfidence(words),
     });

@@ -17,9 +17,18 @@ export interface GlossaryEntry {
   variants: readonly string[];
 }
 
+/** استبدال واحد بموضعه في نصّ الفقرة **قبل** الاستبدال. */
+export interface Replacement {
+  start: number;
+  end: number;
+  text: string;
+}
+
 export interface GlossaryPass {
   paragraphs: string[];
   edits: ProposedEdit[];
+  /** استبدالات كل فقرة بترتيبها — لنقل مواضع الأدلة إلى النصّ الجديد */
+  replacements: Replacement[][];
 }
 
 const LETTER = "[\\p{L}\\p{N}\\p{M}]";
@@ -32,33 +41,62 @@ export function applyGlossaryVariants(
   paragraphs: readonly string[],
   entries: readonly GlossaryEntry[],
 ): GlossaryPass {
-  const out = [...paragraphs];
-  const edits: ProposedEdit[] = [];
-
   // الأطول أولًا: «عبد الله بن سعود» قبل «عبد الله»، وإلا صُحّح جزؤها
-  // فلم يعد الكلّ يطابق.
-  const rules = entries
-    .flatMap((e) =>
-      e.variants
-        .map((v) => v.trim())
-        .filter((v) => v && v !== e.term)
-        .map((variant) => ({ variant, term: e.term })),
-    )
-    .sort((a, b) => b.variant.length - a.variant.length);
-
-  for (const { variant, term } of rules) {
-    const pattern = new RegExp(`(?<!${LETTER})${escape(variant)}(?!${LETTER})`, "gu");
-
-    out.forEach((paragraph, index) => {
-      const count = paragraph.match(pattern)?.length ?? 0;
-      if (count === 0) return;
-
-      out[index] = paragraph.replace(pattern, term);
-      for (let k = 0; k < count; k++) {
-        edits.push({ para: index + 1, from: variant, to: term, reason: "glossary", confidence: 1 });
-      }
-    });
+  // فلم يعد الكلّ يطابق. والتمرير واحد بكل الأشكال معًا، فلا يعود
+  // شكلٌ قصير فيطابق داخل مصطلح استُبدل للتوّ.
+  const rules = new Map<string, string>();
+  for (const e of entries) {
+    for (const raw of e.variants) {
+      const v = raw.trim();
+      if (v && v !== e.term && !rules.has(v)) rules.set(v, e.term);
+    }
   }
 
-  return { paragraphs: out, edits };
+  const empty: GlossaryPass = {
+    paragraphs: [...paragraphs],
+    edits: [],
+    replacements: paragraphs.map(() => []),
+  };
+  if (rules.size === 0) return empty;
+
+  const alternatives = [...rules.keys()].sort((a, b) => b.length - a.length).map(escape);
+  const pattern = new RegExp(`(?<!${LETTER})(?:${alternatives.join("|")})(?!${LETTER})`, "gu");
+
+  const edits: ProposedEdit[] = [];
+  const replacements: Replacement[][] = [];
+
+  const out = paragraphs.map((paragraph, index) => {
+    const list: Replacement[] = [];
+    const next = paragraph.replace(pattern, (match: string, offset: number) => {
+      const term = rules.get(match)!;
+      list.push({ start: offset, end: offset + match.length, text: term });
+      edits.push({ para: index + 1, from: match, to: term, reason: "glossary", confidence: 1 });
+      return term;
+    });
+    replacements.push(list);
+    return next;
+  });
+
+  return { paragraphs: out, edits, replacements };
+}
+
+/**
+ * نقل موضع من النصّ قبل استبدالات المسرد إلى ما بعدها.
+ * الموضع الواقع داخل نصّ استُبدل يُعاد `null`: المسرد حسمه.
+ */
+export function mapThroughReplacements(
+  list: readonly Replacement[],
+  start: number,
+  end: number,
+): { start: number; end: number } | null {
+  let shift = 0;
+  for (const r of list) {
+    if (r.end <= start) {
+      shift += r.text.length - (r.end - r.start);
+      continue;
+    }
+    if (r.start >= end) break;
+    return null;
+  }
+  return { start: start + shift, end: end + shift };
 }

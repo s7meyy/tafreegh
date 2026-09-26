@@ -1,8 +1,8 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/db";
-import { items, projects } from "@/db/schema";
+import { auditLog, items, projects } from "@/db/schema";
 import { formatCount } from "@/lib/format";
 import { IN_PROGRESS_STATUSES, profileLabel, transcriptionModeLabel } from "@/lib/labels";
 import { env } from "@/lib/env";
@@ -35,6 +35,27 @@ export default async function ProjectPage({
     .where(eq(items.projectId, project.id))
     .orderBy(desc(items.createdAt));
 
+  // نسبة ما عدّله المستخدم بعد التدقيق، على المقاطع المعتمدة — مقياس
+  // الجودة الفعلي على مقاطعه هو لا على عيّنة قياس.
+  const approvals = found.length
+    ? await db
+        .select({ detail: auditLog.detail })
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.action, "approve"),
+            inArray(
+              auditLog.itemId,
+              found.map((i) => i.id),
+            ),
+          ),
+        )
+    : [];
+  const rates = approvals
+    .map((a) => (a.detail as { userEditRate?: number } | null)?.userEditRate)
+    .filter((r): r is number => typeof r === "number");
+  const editRate = rates.length ? rates.reduce((s, r) => s + r, 0) / rates.length : null;
+
   const rows: ItemRow[] = found.map((item) => ({
     id: item.id,
     title: item.title,
@@ -65,6 +86,13 @@ export default async function ProjectPage({
           نمط {transcriptionModeLabel[project.transcriptionMode]} ·{" "}
           {profileLabel[project.profile]} ·{" "}
           {formatCount(rows.length, "مقطع", "مقطعان", "مقاطع")}
+          {editRate !== null && (
+            <>
+              {" "}· التعديل اليدوي بعد التدقيق{" "}
+              <span className="ltr-inline">{(editRate * 100).toFixed(1)}%</span> من الكلمات
+              في المتوسط
+            </>
+          )}
         </p>
       </div>
 

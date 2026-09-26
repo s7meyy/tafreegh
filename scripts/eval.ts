@@ -9,6 +9,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { wordErrorRate } from "../src/lib/arabic";
 import { reviewTranscript } from "../src/lib/review/pipeline";
+import { toParagraphs } from "../src/lib/review/apply";
 import { isReviewConfigured } from "../src/lib/review/provider";
 import type { TranscriptionMode } from "../src/lib/review/stage2";
 import { getRedis } from "../src/lib/redis";
@@ -140,7 +141,8 @@ async function runFixture(name: string, textOnly: boolean): Promise<Row> {
   let output;
   try {
     output = await reviewTranscript({
-      text: raw,
+      paragraphs: toParagraphs(raw),
+      positions: [],
       // لا توقيتات ولا درجات ثقة في المقطع النصّي، فالأدلة من
       // المسرد والرسم وحدها — وهذا يقيس أضعف حالة للمراجعة.
       words: [],
@@ -160,8 +162,8 @@ async function runFixture(name: string, textOnly: boolean): Promise<Row> {
     name,
     dialect: meta.dialect,
     raw: rawWer,
-    reviewed: wordErrorRate(reference, output.reviewedText),
-    audited: wordErrorRate(reference, output.auditedText),
+    reviewed: wordErrorRate(reference, output.reviewed.join("\n\n")),
+    audited: wordErrorRate(reference, output.audited.join("\n\n")),
   };
 }
 

@@ -3,8 +3,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { auditLog, items, transcripts } from "@/db/schema";
-import { tidyOutput } from "@/lib/arabic";
-import { loadItem } from "@/lib/items";
+import { tidyOutput, wordErrorRate } from "@/lib/arabic";
+import { bestText, loadItem } from "@/lib/items";
+import { stripSpeakers } from "@/lib/transcript/speakers";
 import { enqueueCleanup } from "@/lib/queue";
 import { unauthorized } from "@/lib/api";
 import { requireApiUser } from "@/lib/session";
@@ -42,6 +43,14 @@ export async function POST(
     return NextResponse.json({ error: "نصّ غير صالح" }, { status: 400 });
   }
 
+  // كم غيّر المستخدم بعد المراجعتين: أصدق مقياس لجودة الخط على مقاطعه
+  // هو، بلا نصّ مرجعي. صفر يعني أن الآلة أصابت كل شيء — أو أنه لم يراجع.
+  const machine = bestText(loaded.stages);
+  const userEditRate =
+    parsed.data.text && machine
+      ? wordErrorRate(stripSpeakers(machine), stripSpeakers(parsed.data.text))
+      : 0;
+
   // نصّ المستخدم يُحفظ نسخةً مستقلة لا يُعدَّل فوق نصّ التدقيق:
   // المراحل كلها محفوظة ليمكن الرجوع والمقارنة دائمًا.
   if (parsed.data.text) {
@@ -64,7 +73,7 @@ export async function POST(
     itemId: id,
     action: "approve",
     actor: "user",
-    detail: { edited: Boolean(parsed.data.text) },
+    detail: { edited: Boolean(parsed.data.text), userEditRate },
   });
 
   await enqueueCleanup(id);

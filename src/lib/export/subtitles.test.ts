@@ -87,3 +87,27 @@ describe("toVtt", () => {
     expect(toVtt([]).trim()).toBe("WEBVTT");
   });
 });
+
+describe("buildCues — حدود طبيعية", () => {
+  it("لا يترك كلمة يتيمة في بطاقة وحدها", () => {
+    const list: Word[] = [
+      ...words("وعليكم السلام ورحمة الله وبركاته، الله", 850),
+      { text: "يحييك", startMs: 5100, endMs: 6000 },
+    ];
+    const cues = buildCues(list, { maxMs: 5000 });
+    expect(cues.at(-1)!.text.split(" ").length).toBeGreaterThan(1);
+  });
+
+  it("يقطع عند الفاصلة لا في وسط العبارة", () => {
+    const cues = buildCues(words("أهلًا بك، كيف حالك اليوم يا صديقي"), { maxWords: 5 });
+    expect(cues[0]!.text).toBe("أهلًا بك،");
+  });
+
+  it("لا تجمع البطاقة كلام متحدثين", () => {
+    const list = words("سؤال قصير جواب قصير").map((w, i) => ({
+      ...w,
+      speaker: i < 2 ? "أ" : "ب",
+    }));
+    expect(buildCues(list).map((c) => c.text)).toEqual(["سؤال قصير", "جواب قصير"]);
+  });
+});

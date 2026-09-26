@@ -29,22 +29,15 @@ export interface Cue {
   text: string;
 }
 
+const CLAUSE_END = /[،؛.؟!,;?]$/;
+/** بطاقة أقصر من هذا تُضمّ إلى جارتها — لا تُقرأ في لمحتها */
+const MIN_CUE_MS = 1_200;
+
 export function buildCues(words: readonly Word[], options: CueOptions = {}): Cue[] {
   const o = { ...DEFAULTS, ...options };
-  const cues: Cue[] = [];
+  const groups: Word[][] = [];
 
   let current: Word[] = [];
-
-  const flush = () => {
-    if (current.length === 0) return;
-    cues.push({
-      index: cues.length + 1,
-      startMs: current[0]!.startMs,
-      endMs: current[current.length - 1]!.endMs,
-      text: current.map((w) => w.text.trim()).filter(Boolean).join(" "),
-    });
-    current = [];
-  };
 
   for (const word of words) {
     if (!word.text.trim()) continue;
@@ -54,16 +47,56 @@ export function buildCues(words: readonly Word[], options: CueOptions = {}): Cue
       const previous = current[current.length - 1]!;
       const tooLong = word.endMs - first.startMs > o.maxMs;
       const tooMany = current.length >= o.maxWords;
-      // الوقفة الطويلة حدّ طبيعي للبطاقة، أوضح من عدّ الكلمات وحده.
+      // الوقفة الطويلة وتبدّل المتكلم حدّان طبيعيان للبطاقة.
       const afterPause = word.startMs - previous.endMs >= o.gapMs;
+      const turn = word.speaker !== previous.speaker;
 
-      if (tooLong || tooMany || afterPause) flush();
+      if (afterPause || turn) {
+        groups.push(current);
+        current = [];
+      } else if (tooLong || tooMany) {
+        // يُقطع عند آخر فاصلة أو نقطة إن وُجدت قريبًا، لا في وسط العبارة.
+        let cut = current.length;
+        for (let j = current.length - 1; j >= 1; j--) {
+          if (CLAUSE_END.test(current[j]!.text.trim())) {
+            cut = j + 1;
+            break;
+          }
+        }
+        groups.push(current.slice(0, cut));
+        current = current.slice(cut);
+      }
     }
     current.push(word);
   }
-  flush();
+  if (current.length > 0) groups.push(current);
 
-  return cues;
+  // بطاقة من كلمة يتيمة أو لمحة قصيرة تُضمّ إلى سابقتها إن اتصلتا.
+  const merged: Word[][] = [];
+  for (const group of groups) {
+    const prev = merged[merged.length - 1];
+    const duration = group[group.length - 1]!.endMs - group[0]!.startMs;
+    const short = group.length === 1 || duration < MIN_CUE_MS;
+    if (
+      prev &&
+      short &&
+      prev.length + group.length <= o.maxWords + 1 &&
+      prev[0]!.speaker === group[0]!.speaker &&
+      group[0]!.startMs - prev[prev.length - 1]!.endMs < o.gapMs &&
+      group[group.length - 1]!.endMs - prev[0]!.startMs <= o.maxMs + 2_000
+    ) {
+      prev.push(...group);
+    } else {
+      merged.push([...group]);
+    }
+  }
+
+  return merged.map((group, i) => ({
+    index: i + 1,
+    startMs: group[0]!.startMs,
+    endMs: group[group.length - 1]!.endMs,
+    text: group.map((w) => w.text.trim()).filter(Boolean).join(" "),
+  }));
 }
 
 export function toSrt(words: readonly Word[], options?: CueOptions): string {

@@ -7,7 +7,7 @@ import { items, projects } from "@/db/schema";
 import { toDocx } from "@/lib/export/docx";
 import { toSrt, toVtt } from "@/lib/export/subtitles";
 import { safeFilename, toMarkdown, toTxt, type ExportMeta } from "@/lib/export/text";
-import { bestText, loadItem, subtitleWords } from "@/lib/items";
+import { bestText, exportMeta, loadItem, subtitleWords } from "@/lib/items";
 import { unauthorized } from "@/lib/api";
 import { requireApiUser } from "@/lib/session";
 
@@ -73,13 +73,8 @@ export async function POST(
       continue;
     }
 
-    const meta: ExportMeta = {
-      title: loaded.item.title,
-      project: project.name,
-      mode: project.transcriptionMode,
-      durationSec: loaded.item.durationSec,
-      approvedAt: loaded.item.approvedAt,
-    };
+    const meta = exportMeta(loaded, text);
+    if (meta.draft) meta.title = `${meta.title} (مسودة)`;
 
     const rendered = await renderOne(parsed.data.format, text, meta, loaded);
     if (!rendered) {

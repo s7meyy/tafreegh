@@ -84,3 +84,22 @@ describe("mergeSegments", () => {
     );
   });
 });
+
+describe("mergeSegments — المتحدثون", () => {
+  it("يوحّد أرقام المتحدثين بين مقطعين رقّمهما المحرّك من جديد", () => {
+    const at = (text: string, ms: number, speaker: string) => ({ text, startMs: ms, endMs: ms + 400, speaker });
+    const first = {
+      plan: { index: 0, startMs: 0, endMs: 10_000, overlapMs: 0 },
+      words: [at("سؤال", 0, "1"), at("أول", 500, "1"), at("جواب", 7000, "2"), at("طويل", 7500, "2"), at("جدا", 8000, "2"), at("هنا", 8500, "2")],
+    };
+    // المقطع الثاني يبدأ بكلام الضيف فيسمّيه «1»
+    const second = {
+      plan: { index: 1, startMs: 6_500, endMs: 20_000, overlapMs: 3_500 },
+      words: [at("جواب", 500, "1"), at("طويل", 1000, "1"), at("جدا", 1500, "1"), at("هنا", 2000, "1"), at("سؤال", 5000, "2"), at("ثان", 5500, "2")],
+    };
+    const merged = mergeSegments([first, second]);
+    expect(merged.map((w) => `${w.text}:${w.speaker}`)).toEqual([
+      "سؤال:1", "أول:1", "جواب:2", "طويل:2", "جدا:2", "هنا:2", "سؤال:1", "ثان:1",
+    ]);
+  });
+});

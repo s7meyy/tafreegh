@@ -18,6 +18,7 @@ export interface SettingsValues {
   name: string;
   transcriptionMode: string;
   profile: string;
+  speakers: string[];
   glossary: Term[];
 }
 
@@ -54,6 +55,7 @@ export function ProjectSettings({
           name: values.name,
           transcriptionMode: values.transcriptionMode,
           profile: values.profile,
+          speakers: values.speakers.map((s) => s.trim()).filter(Boolean),
           // الصفوف الفارغة تُسقط: المستخدم يترك سطرًا فارغًا أثناء الكتابة.
           glossary: values.glossary.filter((t) => t.term.trim()),
         }),
@@ -114,11 +116,37 @@ export function ProjectSettings({
         hints={profileHint}
       />
 
+      <div className="space-y-2">
+        <label htmlFor="speakers" className="block font-medium">
+          أسماء المتحدثين
+        </label>
+        <p id="speakers-hint" className="text-sm text-ink-soft">
+          بترتيب ظهورهم في المقاطع، بينها فاصلة — مثل: المحاور، الضيف. تُكتب
+          على فقرات كل متحدث حين يميّز المحرّك أكثر من صوت. إن تُركت فارغة
+          كُتب «المتحدث 1» و«المتحدث 2».
+        </p>
+        <input
+          id="speakers"
+          aria-describedby="speakers-hint"
+          value={values.speakers.join("، ")}
+          onChange={(e) =>
+            setValues({
+              ...values,
+              speakers: e.target.value.split(/[،,]/).map((v) => v.trimStart()),
+            })
+          }
+          placeholder="المحاور، الضيف"
+          className="min-h-11 w-full max-w-md rounded-lg border border-line bg-panel px-4 outline-none focus:border-brand"
+        />
+      </div>
+
       <fieldset className="space-y-3">
         <legend className="font-medium">مسرد المشروع</legend>
         <p className="text-sm text-ink-soft">
           أسماء الأعلام والمصطلحات التي ترد في المقاطع، بالرسم الذي تريده.
           تُمرَّر لمحرّك التفريغ فيتعرّف عليها، وتُستعمل دليلًا في المراجعة.
+          وللكلمات اللهجية كذلك: اكتب الكلمة كما تُنطق («وش») وأشكالها
+          الخاطئة («ويش») فتُصحَّح آليًا في كل المقاطع.
         </p>
 
         <ul className="space-y-2">
