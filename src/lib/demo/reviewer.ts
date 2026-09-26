@@ -135,3 +135,52 @@ export function demoAuditEdits(edits: readonly ProposedEdit[]): EditVerdict[] {
       : { index, verdict: "reject" as const, note: "لا يطابق السياق" };
   });
 }
+
+/**
+ * المداخلات من النصّ المرجعي: أول كلمات كل مداخلة في المرجع يُبحث عنها
+ * في الفقرات. يحاكي نموذجًا يفهم أدوار الحوار من كلامه.
+ */
+export function demoInferTurns(
+  paragraphs: readonly string[],
+): { para: number; quote: string; speaker: number }[] {
+  const script = demoScript();
+  const numbers = new Map<string, number>();
+  const turns: { para: number; quote: string; speaker: number }[] = [];
+
+  // كلمات الفقرات بمواضعها، مطبَّعة للمقارنة — النموذج يقتبس من النصّ
+  // الذي أمامه لا من المرجع، فالاقتباس يُؤخذ من الفقرة نفسها.
+  const tokens: { para: number; start: number; end: number; norm: string }[] = [];
+  paragraphs.forEach((p, i) => {
+    for (const m of p.matchAll(/\S+/g)) {
+      tokens.push({ para: i + 1, start: m.index!, end: m.index! + m[0].length, norm: normalizeForCompare(m[0]) });
+    }
+  });
+
+  let cursor = 0;
+  for (let i = 0; i < script.length; i++) {
+    const w = script[i]!;
+    if (i > 0 && script[i - 1]!.turn === w.turn) continue;
+    if (!numbers.has(w.speaker)) numbers.set(w.speaker, numbers.size + 1);
+
+    const want = script.slice(i, i + 3).map((x) => normalizeForCompare(x.text));
+    // يُقبل تطابق كلمتين من ثلاث: في أول المداخلة قد يخطئ المحرّك
+    for (let t = cursor; t < tokens.length - 2; t++) {
+      const hits = want.filter((x, k) => tokens[t + k]!.norm === x).length;
+      if (hits < 2 || tokens[t + 2]!.para !== tokens[t]!.para) continue;
+      const first = tokens[t]!;
+      const paragraph = paragraphs[first.para - 1]!;
+      const quote = first.start === 0 ? "" : paragraph.slice(first.start, tokens[t + 2]!.end);
+      turns.push({ para: first.para, quote, speaker: numbers.get(w.speaker)! });
+      cursor = t + 1;
+      break;
+    }
+  }
+  return turns;
+}
+
+/** عنوان من أكثر كلمات المقطع دلالة — يحاكي نموذجًا يلخّص الموضوع. */
+export function demoSuggestTitle(paragraphs: readonly string[]): string {
+  const text = paragraphs.join(" ");
+  if (text.includes("النخل") || text.includes("التمور")) return "مقابلة مع مزارع نخل من القصيم عن التمور والموسم";
+  return text.split(/\s+/).slice(0, 6).join(" ");
+}

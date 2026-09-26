@@ -14,6 +14,8 @@ const patchSchema = z.object({
   title: z.string().trim().min(1, "العنوان مطلوب").max(200).optional(),
   /** إعادة معالجة مقطع فاشل من أول مرحلة لم يكتمل ناتجها */
   retry: z.literal(true).optional(),
+  /** تجاهل العنوان المقترح */
+  dismissTitle: z.literal(true).optional(),
 });
 
 type Params = { params: Promise<{ id: string }> };
@@ -34,8 +36,14 @@ export async function PATCH(request: Request, { params }: Params) {
     );
   }
 
+  // تسمية المقطع يدويًا تُسقط الاقتراح: المستخدم اختار.
   if (parsed.data.title) {
-    await db.update(items).set({ title: parsed.data.title }).where(eq(items.id, id));
+    await db
+      .update(items)
+      .set({ title: parsed.data.title, suggestedTitle: null })
+      .where(eq(items.id, id));
+  } else if (parsed.data.dismissTitle) {
+    await db.update(items).set({ suggestedTitle: null }).where(eq(items.id, id));
   }
 
   if (parsed.data.retry) {

@@ -38,3 +38,18 @@ export function composeText(
     .map((p, i) => (many ? withSpeaker(p, map.get(labels[i] ?? "") ?? null) : p))
     .join("\n\n");
 }
+
+/** جمع مداخلات مستنتجة من النصّ بأسماء متحدثيها. */
+export function composeSegments(
+  segments: readonly { text: string; speaker: string | null }[],
+  names: readonly string[] = [],
+): string {
+  const map = speakerNames(
+    segments.map((s) => s.speaker),
+    names,
+  );
+  const many = map.size >= 2;
+  return segments
+    .map((s) => (many ? withSpeaker(s.text, s.speaker ? map.get(s.speaker) : null) : s.text))
+    .join("\n\n");
+}

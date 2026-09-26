@@ -15,7 +15,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "test": "vitest run",
-    "eval": "tsx --env-file-if-exists=.env scripts/eval.ts"
+    "eval": "tsx --env-file-if-exists=.env scripts/eval.ts",
+    "trial": "tsx --env-file-if-exists=.env scripts/trial.ts"
   },
   "dependencies": {
     "@t3-oss/env-nextjs": "^0.12.0",

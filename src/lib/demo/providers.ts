@@ -1,5 +1,6 @@
 import type { TranscriptionProvider, TranscribeInput } from "@/lib/providers/types";
 import type { TranscriptResult, Word } from "@/lib/transcript/types";
+import { env } from "@/lib/env";
 import { chance, demoScript } from "./script";
 
 /**
@@ -173,7 +174,7 @@ export class DemoEngineB implements TranscriptionProvider {
       if (text === bare && r < 0.04) text = dropHamza(bare);
 
       let label: string | undefined;
-      if (speaker) {
+      if (speaker && env().DEMO_DIARIZE) {
         if (!numbering.has(speaker)) numbering.set(speaker, String(numbering.size + 1));
         label = numbering.get(speaker);
       }

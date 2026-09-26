@@ -53,6 +53,14 @@ const schema = z.object({
     .default("false")
     .transform((v) => v === "true"),
   DEMO_SCRIPT: z.string().default("./eval/demo/script.json"),
+  /**
+   * هل يميّز المحرّك الثاني المحاكى المتحدثين؟ أطفئه لتجربة استنتاج
+   * المتحدثين من النصّ — حال من يعمل بـ Groq وحده.
+   */
+  DEMO_DIARIZE: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
 });
 
 export type Env = z.infer<typeof schema>;

@@ -146,6 +146,8 @@ export const items = pgTable(
     mediaPath: text("media_path"),
     durationSec: integer("duration_sec"),
     languageHint: text("language_hint").default("ar"),
+    /** عنوان مقترح من محتوى المقطع — يُعرض على المستخدم ولا يُفرض */
+    suggestedTitle: text("suggested_title"),
 
     status: itemStatusEnum("status").notNull().default("queued"),
     currentStage: stageEnum("current_stage"),

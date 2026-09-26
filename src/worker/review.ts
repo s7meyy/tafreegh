@@ -3,7 +3,9 @@ import { db } from "@/db";
 import { env } from "@/lib/env";
 import { ConfigError } from "@/lib/errors";
 import { auditLog, edits, glossary, items, projects, transcripts } from "@/db/schema";
-import { composeText, prepareDocument } from "@/lib/review/document";
+import { composeSegments, composeText, prepareDocument } from "@/lib/review/document";
+import { isGenericTitle, suggestTitle } from "@/lib/review/title";
+import { applyTurns, inferTurns, remapPosition, type Turn } from "@/lib/review/turns";
 import { isReviewConfigured } from "@/lib/review/provider";
 import { reviewTranscript, unresolvedSpans } from "@/lib/review/pipeline";
 import { diffTranscripts } from "@/lib/transcript/diff";
@@ -97,13 +99,27 @@ export async function reviewItem(itemId: string): Promise<void> {
     .set({ status: "reviewing_2", currentStage: "audit" })
     .where(eq(items.id, itemId));
 
+  // المتحدثون: من المحرّك إن ميّزهم، وإلا من النصّ نفسه.
+  const hasSpeakers = doc.layout.paragraphs.some((p) => p.speaker);
+  const turns = hasSpeakers ? null : await speakerTurns(output.audited, project.speakers, local);
+  const labelled = (paragraphs: string[]) =>
+    turns
+      ? composeSegments(applyTurns(paragraphs, turns).segments, project.speakers)
+      : composeText(paragraphs, doc.layout, project.speakers);
+  // تقسيم المداخلات يغيّر ترقيم الفقرات؛ المواضع تُنقل إليه.
+  const finalSegments = turns ? applyTurns(output.audited, turns).segments : null;
+  const where = (para: number, offset = 0) =>
+    finalSegments ? remapPosition(finalSegments, para, offset) : { para, offset };
+
+  await suggestTitleFor(item, output.audited, local);
+
   await db.insert(transcripts).values([
     {
       itemId,
       stage: "review",
       engine: reviewEngine,
       model: "review",
-      text: composeText(output.reviewed, doc.layout, project.speakers),
+      text: labelled(output.reviewed),
       wordsJson: null,
       avgConfidence: null,
     },
@@ -112,7 +128,7 @@ export async function reviewItem(itemId: string): Promise<void> {
       stage: "audit",
       engine: reviewEngine,
       model: "audit",
-      text: composeText(output.audited, doc.layout, project.speakers),
+      text: labelled(output.audited),
       wordsJson: null,
       avgConfidence: null,
     },
@@ -126,7 +142,7 @@ export async function reviewItem(itemId: string): Promise<void> {
       doc.glossaryEdits.map((e) => ({
         itemId,
         fromStage: "review" as const,
-        paragraph: e.para,
+        paragraph: where(e.para).para,
         before: e.from,
         after: e.to,
         reason: e.reason,
@@ -150,10 +166,11 @@ export async function reviewItem(itemId: string): Promise<void> {
       output.proposed.map((e) => {
         const final = kept.get(e.id);
         const guardNote = final ? undefined : guarded.get(e.id);
+        const at = (final ?? located.get(e.id))?.at;
         return {
           itemId,
           fromStage: "review" as const,
-          paragraph: e.para,
+          paragraph: where(e.para, at).para,
           before: e.from,
           after: final?.to ?? e.to,
           reason: e.reason,
@@ -167,7 +184,10 @@ export async function reviewItem(itemId: string): Promise<void> {
     );
   }
 
-  const unresolved = unresolvedSpans(output);
+  const unresolved = unresolvedSpans(output).map((span) => ({
+    ...span,
+    ...where(span.para, span.offset),
+  }));
 
   await db.insert(auditLog).values({
     itemId,
@@ -188,4 +208,43 @@ export async function reviewItem(itemId: string): Promise<void> {
     .update(items)
     .set({ status: "awaiting_approval", currentStage: "export" })
     .where(eq(items.id, itemId));
+}
+
+/**
+ * مداخلات المتحدثين من النصّ، حين لم يميّزهم المحرّك.
+ * إضافة لا شرط: فشلها لا يُفشل المراجعة، والنصّ يبقى بلا أسماء كما كان.
+ */
+async function speakerTurns(
+  paragraphs: string[],
+  names: readonly string[],
+  local: boolean,
+): Promise<Turn[] | null> {
+  try {
+    const turns = await inferTurns({ paragraphs, names, local });
+    const distinct = new Set(turns.map((t) => t.speaker));
+    return distinct.size >= 2 ? turns : null;
+  } catch (err) {
+    console.warn(`[review] تعذّر استنتاج المتحدثين: ${err instanceof Error ? err.message : err}`);
+    return null;
+  }
+}
+
+/** العنوان المقترح: يحلّ محلّ الاسم العام آليًا، ويُعرض اقتراحًا على غيره. */
+async function suggestTitleFor(
+  item: { id: string; title: string; sourceType: string },
+  paragraphs: string[],
+  local: boolean,
+): Promise<void> {
+  try {
+    const title = await suggestTitle(paragraphs, local);
+    if (!title || title === item.title) return;
+    // عنوان يوتيوب اختاره صاحبه، فلا يُستبدل وإن بدا عامًا
+    const replace = item.sourceType !== "youtube" && isGenericTitle(item.title);
+    await db
+      .update(items)
+      .set(replace ? { title, suggestedTitle: null } : { suggestedTitle: title })
+      .where(eq(items.id, item.id));
+  } catch (err) {
+    console.warn(`[review] تعذّر اقتراح عنوان: ${err instanceof Error ? err.message : err}`);
+  }
 }
