@@ -65,4 +65,5 @@ export interface EvidenceSpan {
   /** بديل المحرّك الآخر، حين يكون الدليل اختلافًا */
   alternative?: string;
   startMs?: number;
+  endMs?: number;
 }

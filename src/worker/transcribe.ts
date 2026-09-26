@@ -87,6 +87,7 @@ export async function transcribeItem(itemId: string): Promise<void> {
             audioSeconds,
             glossary: glossaryTerms,
             languageHint: item.languageHint ?? "ar",
+            offsetMs: plan.startMs,
           },
           itemId,
         );

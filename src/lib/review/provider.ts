@@ -35,6 +35,7 @@ function modelFor(tier: ReviewTier): { model: string; quotaKey: string } {
 }
 
 export function isReviewConfigured(local = false): boolean {
+  if (env().DEMO_MODE) return true;
   return local ? Boolean(env().OLLAMA_BASE_URL) : Boolean(env().GEMINI_API_KEY);
 }
 

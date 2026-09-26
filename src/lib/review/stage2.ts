@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { formatEvidence } from "./evidence";
+import { demoProposeEdits } from "@/lib/demo/reviewer";
+import { env } from "@/lib/env";
 import { callReview } from "./provider";
 import { EDIT_REASONS, type EvidenceSpan, type ProposedEdit } from "./types";
 
@@ -90,6 +92,8 @@ export interface Stage2Input {
 }
 
 export async function proposeEdits(input: Stage2Input): Promise<ProposedEdit[]> {
+  if (env().DEMO_MODE) return demoProposeEdits(input);
+
   const sections = [
     MODE_RULES[input.mode],
     "",

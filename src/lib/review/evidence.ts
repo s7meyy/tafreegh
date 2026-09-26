@@ -45,6 +45,7 @@ export function buildEvidence(input: BuildEvidenceInput): EvidenceSpan[] {
         text: word.text,
         kind: "low_confidence",
         startMs: word.startMs,
+        endMs: word.endMs,
       });
     }
   }
@@ -60,6 +61,7 @@ export function buildEvidence(input: BuildEvidenceInput): EvidenceSpan[] {
         kind: "engine_disagreement",
         alternative: diff.b,
         startMs: diff.startMs,
+        endMs: diff.endMs,
       });
     }
   }

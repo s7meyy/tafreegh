@@ -21,3 +21,6 @@ eval/audio/*
 .DS_Store
 .vscode/
 .idea/
+
+# مخرجات وضع العرض التجريبي — تُولَّد بـ scripts/demo/make-audio.py
+eval/demo/

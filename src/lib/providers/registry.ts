@@ -6,6 +6,8 @@ import type { TranscriptResult } from "@/lib/transcript/types";
 import { GeminiProvider } from "./gemini";
 import { GroqProvider } from "./groq";
 import { LocalWhisperProvider } from "./local";
+import { DemoEngineA, DemoEngineB } from "@/lib/demo/providers";
+import { env } from "@/lib/env";
 import { ProviderError, type TranscribeInput, type TranscriptionProvider } from "./types";
 
 export { QuotaExhaustedError } from "@/lib/errors";
@@ -15,6 +17,8 @@ export { QuotaExhaustedError } from "@/lib/errors";
  * المحلي آخرها: يعمل بلا حصة، فهو ملاذ لا خيار أول.
  */
 export function transcriptionProviders(): TranscriptionProvider[] {
+  // وضع العرض التجريبي يستبدل المزوّدين كلهم — لا يُخلط محاكًى بحقيقي.
+  if (env().DEMO_MODE) return [new DemoEngineA(), new DemoEngineB()];
   return [new GroqProvider(), new GeminiProvider(), new LocalWhisperProvider()];
 }
 

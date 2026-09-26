@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
+import { env } from "@/lib/env";
 import { getCurrentUser } from "@/lib/session";
 import "./globals.css";
 
@@ -53,6 +54,12 @@ export default async function RootLayout({
             )}
           </div>
         </header>
+
+        {env().DEMO_MODE && (
+          <p className="bg-warn/15 px-4 py-2 text-center text-sm">
+            وضع العرض التجريبي: التفريغ والمراجعة هنا محاكاة لا نماذج حقيقية.
+          </p>
+        )}
 
         <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
       </body>

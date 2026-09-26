@@ -42,6 +42,17 @@ const schema = z.object({
     .default("false")
     .transform((v) => v === "true"),
   MEDIA_TTL_DAYS: z.coerce.number().int().positive().default(14),
+
+  /**
+   * وضع العرض التجريبي: محرّكان ومراجع محاكاة بدل المزوّدين الحقيقيين.
+   * لتجربة الدورة كاملة بلا مفاتيح. لا يُفعَّل في الإنتاج أبدًا —
+   * مخرجاته محاكاة لا تفريغ.
+   */
+  DEMO_MODE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  DEMO_SCRIPT: z.string().default("./eval/demo/script.json"),
 });
 
 export type Env = z.infer<typeof schema>;

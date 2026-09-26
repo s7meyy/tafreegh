@@ -182,7 +182,13 @@ function DiffView({ segments }: { segments: DiffSegment[] }) {
   );
 }
 
-function EditsTable({ edits }: { edits: { id: string; paragraph: number; before: string; after: string; reason: string; verdict: string }[] }) {
+function verdictLabel(verdict: string, note: string | null): string {
+  if (verdict === "accepted") return note ?? "أقرّه التدقيق";
+  if (note?.startsWith("الحارس")) return `رفضه الحارس — ${note.replace(/^الحارس:\s*/, "")}`;
+  return "رفضه التدقيق";
+}
+
+function EditsTable({ edits }: { edits: { id: string; paragraph: number; before: string; after: string; reason: string; verdict: string; verdictNote: string | null }[] }) {
   return (
     <details className="rounded-xl border border-line bg-panel">
       <summary className="flex min-h-11 cursor-pointer items-center px-5 font-medium">
@@ -201,7 +207,7 @@ function EditsTable({ edits }: { edits: { id: string; paragraph: number; before:
             <span
               className={`text-xs ${edit.verdict === "accepted" ? "text-ok" : "text-ink-soft"}`}
             >
-              {edit.verdict === "accepted" ? "أقرّه التدقيق" : "رفضه التدقيق"}
+              {verdictLabel(edit.verdict, edit.verdictNote)}
             </span>
           </li>
         ))}

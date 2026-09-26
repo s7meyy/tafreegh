@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { demoAuditEdits } from "@/lib/demo/reviewer";
+import { env } from "@/lib/env";
 import { callReview } from "./provider";
 import type { ProposedEdit } from "./types";
 
@@ -91,6 +93,8 @@ export async function auditEdits(input: Stage3Input): Promise<EditVerdict[]> {
       )
       .join("\n"),
   ].join("\n");
+
+  if (env().DEMO_MODE) return reconcile(demoAuditEdits(input.edits), input.edits.length);
 
   const verdicts = await callReview({
     tier: "audit",

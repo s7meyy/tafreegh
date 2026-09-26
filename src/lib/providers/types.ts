@@ -8,6 +8,8 @@ export interface TranscribeInput {
   /** مصطلحات المشروع — تُمرَّر تلقينًا للمحرّك لتحسين أسماء الأعلام */
   glossary?: string[];
   languageHint?: string;
+  /** موضع المقطع الفرعي من بداية التسجيل — يحتاجه وضع العرض التجريبي وحده */
+  offsetMs?: number;
 }
 
 export interface TranscriptionProvider {

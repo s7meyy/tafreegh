@@ -1,5 +1,6 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
+import { env } from "@/lib/env";
 import { ConfigError } from "@/lib/errors";
 import { auditLog, edits, glossary, items, projects, transcripts } from "@/db/schema";
 import { toParagraphs } from "@/lib/review/apply";
@@ -27,6 +28,7 @@ export async function reviewItem(itemId: string): Promise<void> {
   if (!project) throw new Error("المجلد غير موجود");
 
   const local = project.profile === "local_only";
+  const reviewEngine = env().DEMO_MODE ? "demo" : local ? "ollama" : "gemini";
   if (!isReviewConfigured(local)) {
     throw new ConfigError(
       local
@@ -35,20 +37,31 @@ export async function reviewItem(itemId: string): Promise<void> {
     );
   }
 
+  // النسخ المدموجة وحدها: نسخ المقاطع الفرعية (للاستئناف) تغطي جزءًا من
+  // التسجيل، ومراجعة إحداها تُخرج نصًّا معتمدًا لنصف المقطع.
   const produced = await db
     .select()
     .from(transcripts)
-    .where(and(eq(transcripts.itemId, itemId), eq(transcripts.stage, "transcribe")))
-    .orderBy(desc(transcripts.avgConfidence));
+    .where(
+      and(
+        eq(transcripts.itemId, itemId),
+        eq(transcripts.stage, "transcribe"),
+        isNull(transcripts.segmentId),
+      ),
+    );
 
   if (produced.length === 0) {
     throw new Error("لا تفريغ لهذا المقطع — شغّل مرحلة التفريغ أولًا.");
   }
 
-  // المرجع هو صاحب أعلى ثقة؛ درجات الثقة تأتي من Groq وحده، فهو
-  // المرجع عمليًا ما دام قد نجح.
-  const primary = produced[0]!;
-  const secondary = produced.find((t) => t.engine !== primary.engine);
+  // المرجع هو المحرّك صاحب درجات الثقة والتوقيتات الموثوقة. الترتيب في
+  // SQL تنازليًا يضع القيم الفارغة أولًا، فكان يختار المحرّك الذي لا
+  // ثقة له أصلًا — فتضيع أدلة «الثقة المنخفضة» وتفسد التوقيتات.
+  const ranked = [...produced].sort(
+    (a, b) => (b.avgConfidence ?? -1) - (a.avgConfidence ?? -1),
+  );
+  const primary = ranked[0]!;
+  const secondary = ranked.find((t) => t.engine !== primary.engine);
 
   const primaryWords = (primary.wordsJson ?? []) as Word[];
   const disagreements = secondary
@@ -88,7 +101,7 @@ export async function reviewItem(itemId: string): Promise<void> {
     {
       itemId,
       stage: "review",
-      engine: local ? "ollama" : "gemini",
+      engine: reviewEngine,
       model: "review",
       text: output.reviewedText,
       wordsJson: null,
@@ -97,7 +110,7 @@ export async function reviewItem(itemId: string): Promise<void> {
     {
       itemId,
       stage: "audit",
-      engine: local ? "ollama" : "gemini",
+      engine: reviewEngine,
       model: "audit",
       text: output.auditedText,
       wordsJson: null,
@@ -123,20 +136,27 @@ export async function reviewItem(itemId: string): Promise<void> {
   }
 
   if (output.proposed.length > 0) {
-    const kept = new Set(output.finalEdits.map((e) => `${e.para}|${e.from}`));
+    // كل تعديل مقترح بحكمه ومَن حكم: الحارس (فحص آلي في الكود) أم
+    // المدقّق (نموذج). الخلط بينهما يوهم أن النموذج رفض ما رفضه الكود.
+    const key = (e: { para: number; from: string; to: string }) => `${e.para}|${e.from}|${e.to}`;
+    const kept = new Set(output.finalEdits.map(key));
+    const guarded = new Map(output.rejectedByGuard.map((r) => [key(r.edit), r.message]));
+
     await db.insert(edits).values(
-      output.proposed.map((e) => ({
-        itemId,
-        fromStage: "review" as const,
-        paragraph: e.para,
-        before: e.from,
-        after: e.to,
-        reason: e.reason,
-        confidence: e.confidence ?? null,
-        verdict: kept.has(`${e.para}|${e.from}`)
-          ? ("accepted" as const)
-          : ("rejected" as const),
-      })),
+      output.proposed.map((e) => {
+        const guardNote = guarded.get(key(e));
+        return {
+          itemId,
+          fromStage: "review" as const,
+          paragraph: e.para,
+          before: e.from,
+          after: e.to,
+          reason: e.reason,
+          confidence: e.confidence ?? null,
+          verdict: kept.has(key(e)) ? ("accepted" as const) : ("rejected" as const),
+          verdictNote: guardNote ? `الحارس: ${guardNote}` : kept.has(key(e)) ? null : "المدقّق",
+        };
+      }),
     );
   }
 
