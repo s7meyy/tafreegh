@@ -11,7 +11,16 @@ const FORMATS = [
  * روابط عادية لا نداءات fetch: المتصفح يتولّى التنزيل وحده، ويعمل
  * الزرّ بالنقر الأوسط وبفتح في تبويب جديد كما يتوقّع المستخدم.
  */
-export function ExportButtons({ itemId, approved }: { itemId: string; approved: boolean }) {
+export function ExportButtons({
+  itemId,
+  approved,
+  tashkeel = false,
+}: {
+  itemId: string;
+  approved: boolean;
+  /** نسخة مشكولة من النصّ الحالي جاهزة */
+  tashkeel?: boolean;
+}) {
   return (
     <section className="space-y-3">
       <div>
@@ -36,6 +45,25 @@ export function ExportButtons({ itemId, approved }: { itemId: string; approved: 
           </li>
         ))}
       </ul>
+      {tashkeel && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-ink-soft">بالتشكيل</h3>
+          <ul className="flex flex-wrap gap-2">
+            {FORMATS.map((format) => (
+              <li key={format.key}>
+                <a
+                  href={`/api/items/${itemId}/export?format=${format.key}&variant=tashkeel`}
+                  download
+                  className="flex min-h-11 items-center gap-2 rounded-lg border border-line bg-panel px-4 hover:border-brand"
+                >
+                  <span>{format.label}</span>
+                  <span className="ltr-inline text-xs text-ink-soft">{format.hint}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

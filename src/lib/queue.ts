@@ -8,7 +8,7 @@ import { getRedis } from "./redis";
  * الفصل مقصود: التفريغ يحدّه المزوّد، والتحضير يحدّه المعالج. طابور
  * واحد يجعل الأبطأ يخنق الأسرع.
  */
-export const STAGES = ["fetch", "prepare", "transcribe", "review", "audit", "cleanup"] as const;
+export const STAGES = ["fetch", "prepare", "transcribe", "review", "audit", "cleanup", "enrich"] as const;
 export type Stage = (typeof STAGES)[number];
 
 export interface PrepareJob {
@@ -55,6 +55,9 @@ export function concurrencyFor(stage: Stage): number {
       return e.CONCURRENCY_AUDIT;
     case "cleanup":
       return 1;
+    case "enrich":
+      // إضافات لا يستعجلها أحد: واحدة في كل مرة، فلا تزاحم التفريغ على الحصة
+      return 1;
   }
 }
 
@@ -98,3 +101,19 @@ export const enqueueReview = (itemId: string) => enqueue("review", itemId);
 /** نمهل قليلًا: قد يكون المستخدم ما زال يستمع بعد ضغط «اعتماد». */
 export const enqueueCleanup = (itemId: string) =>
   enqueue("cleanup", itemId, { delay: 60_000 });
+
+/**
+ * الملخص أو التشكيل لمقطع. معرّف لكلٍّ منهما، فيجريان معًا، ولا يتكرّر
+ * أحدهما وهو قيد التنفيذ.
+ */
+export async function enqueueEnrich(itemId: string, kind: "summary" | "tashkeel"): Promise<void> {
+  const queue = queueFor("enrich");
+  const jobId = `enrich-${kind}-${itemId}`;
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state !== "failed" && state !== "completed") return;
+    await existing.remove();
+  }
+  await queue.add(kind, { itemId, kind }, { jobId });
+}

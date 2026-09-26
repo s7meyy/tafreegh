@@ -148,6 +148,8 @@ export const items = pgTable(
     languageHint: text("language_hint").default("ar"),
     /** عنوان مقترح من محتوى المقطع — يُعرض على المستخدم ولا يُفرض */
     suggestedTitle: text("suggested_title"),
+    /** إضافات على النصّ: الملخص والتشكيل — كلٌّ بحالته ومصدره (lib/enrich) */
+    enrichment: jsonb("enrichment"),
 
     status: itemStatusEnum("status").notNull().default("queued"),
     currentStage: stageEnum("current_stage"),

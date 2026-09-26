@@ -2,6 +2,8 @@ import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, edits, items, projects, transcripts } from "@/db/schema";
 import type { ExportMeta } from "@/lib/export/text";
+import { fingerprint, type Enrichment } from "@/lib/enrich/types";
+import { stripTashkeel } from "@/lib/enrich/tashkeel-guard";
 import type { EvidenceSpan } from "@/lib/review/types";
 import { retime } from "@/lib/transcript/retime";
 import { speakersIn, splitParagraphs, splitSpeaker } from "@/lib/transcript/speakers";
@@ -109,8 +111,8 @@ function primaryTranscript(stages: LoadedItem["stages"]) {
  * كلمات بطاقات الترجمة: نصّ المرحلة الأخيرة بتوقيتات التفريغ.
  * التصدير من الكلمات الخام وحدها كان يُخرج أخطاءً صُحّحت فعلًا.
  */
-export function subtitleWords(stages: LoadedItem["stages"]): Word[] {
-  return timedParagraphs(bestText(stages), timedWords(stages)).words;
+export function subtitleWords(stages: LoadedItem["stages"], text = bestText(stages)): Word[] {
+  return timedParagraphs(text, timedWords(stages)).words;
 }
 
 /**
@@ -152,10 +154,24 @@ export function exportMeta(loaded: LoadedItem, text: string): ExportMeta {
     approvedAt: loaded.item.approvedAt,
     draft: !loaded.item.approvedAt,
     speakers,
+    summary: freshSummary(loaded, text),
     timeline: paragraphs.map((p, i) => ({
       speaker: p.speaker,
       body: p.body,
       startMs: starts[i] ?? null,
     })),
   };
+}
+
+/**
+ * الملخص إن أُنشئ من هذا النصّ نفسه (أو من نسخته المشكولة). ملخصٌ لنصٍّ
+ * سابقٍ قد يذكر ما صُحّح بعده، فلا يُصدَّر معه.
+ */
+function freshSummary(loaded: LoadedItem, text: string) {
+  const summary = ((loaded.item.enrichment ?? {}) as Enrichment).summary;
+  if (summary?.status !== "done" || !summary.data) return undefined;
+  const plain = stripTashkeel(text);
+  const base = bestText(loaded.stages);
+  const ok = summary.source === fingerprint(text) || (plain === base && summary.source === fingerprint(base));
+  return ok ? summary.data : undefined;
 }

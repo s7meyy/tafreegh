@@ -6,6 +6,9 @@ import { ConfigError, QuotaExhaustedError } from "@/lib/errors";
 import { concurrencyFor, type Stage } from "@/lib/queue";
 import { getRedis } from "@/lib/redis";
 import { cleanupItem, sweepExpiredMedia } from "./cleanup";
+import { setEnrichment } from "@/lib/enrich/store";
+import { enrichItem } from "./enrich";
+import type { EnrichKind, Enrichment } from "@/lib/enrich/types";
 import { fetchItem } from "./fetch";
 import { prepareItem } from "./prepare";
 import { reviewItem } from "./review";
@@ -102,17 +105,62 @@ async function recordFailure(
     .update(items)
     .set({
       status: "failed",
-      currentStage: stage,
+      // الإضافات لا تمرّ بهذا المسار؛ حالتها في `enrichment`
+      currentStage: stage as Exclude<Stage, "enrich">,
       errorMessage: err instanceof Error ? err.message : "خطأ غير متوقع",
     })
     .where(eq(items.id, itemId));
 }
 
-const workers = Object.entries(handlers).map(([stage, handle]) =>
-  startWorker(stage as Stage, handle),
-);
+/**
+ * عامل الإضافات: الحصة كما في غيره (تأجيل لا فشل)، لكن الفشل يُسجَّل
+ * في حالة الإضافة لا في حالة المقطع — المقطع سليم وإن تعذّر ملخصه.
+ */
+function startEnrichWorker() {
+  const worker = new Worker(
+    "tafreegh-enrich",
+    async (job: Job<{ itemId: string; kind: EnrichKind }>, token?: string) => {
+      const { itemId, kind } = job.data;
+      try {
+        await enrichItem(itemId, kind);
+      } catch (err) {
+        if (err instanceof QuotaExhaustedError && token) {
+          console.log(`[enrich] تأجيل ${kind} ${itemId}: ${err.message}`);
+          await job.moveToDelayed(Date.now() + err.retryAfterMs, token);
+          throw new DelayedError();
+        }
+        const attemptsLeft = (job.opts.attempts ?? 1) - (job.attemptsMade + 1);
+        if (err instanceof ConfigError || attemptsLeft <= 0) {
+          // يُبقى ما أُنجز (فقرات التشكيل المحفوظة) ليُستأنف منه عند الإعادة
+          const [row] = await db.select({ e: items.enrichment }).from(items).where(eq(items.id, itemId));
+          const current = ((row?.e ?? {}) as Enrichment)[kind];
+          await setEnrichment(itemId, kind, {
+            mode: "full",
+            ...current,
+            status: "failed",
+            error: err instanceof Error ? err.message : "خطأ غير متوقع",
+          });
+          if (err instanceof ConfigError) throw new UnrecoverableError(err.message);
+        }
+        throw err;
+      }
+    },
+    { connection: getRedis(), concurrency: concurrencyFor("enrich") },
+  );
+  worker.on("failed", (job, err) => {
+    if (err instanceof DelayedError) return;
+    console.error(`[enrich] فشلت المهمة ${job?.id}:`, err.message);
+  });
+  worker.on("completed", (job) => console.log(`[enrich] اكتملت ${job.id}`));
+  return worker;
+}
 
-console.log(`عامل تفريغ يعمل — المراحل: ${Object.keys(handlers).join("، ")}`);
+const workers = [
+  ...Object.entries(handlers).map(([stage, handle]) => startWorker(stage as Stage, handle)),
+  startEnrichWorker(),
+];
+
+console.log(`عامل تفريغ يعمل — المراحل: ${[...Object.keys(handlers), "enrich"].join("، ")}`);
 
 void sweep();
 const sweepTimer = setInterval(() => void sweep(), SWEEP_INTERVAL_MS);

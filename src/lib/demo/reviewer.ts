@@ -56,9 +56,27 @@ export function demoProposeEdits(input: {
 }): ProposedEdit[] {
   const edits: ProposedEdit[] = [];
 
+  // ٠. كلمة فصلها المحرّك كلمتين («عبد الله» والمرجع «عبدالله»): يصلها
+  // النموذج تصحيحَ رسم — الحروف نفسها — لا تبديلًا لنصفها بالكلمة كلها.
+  const whole = new Set(demoScript().map((w) => w.text.replace(PUNCT, "")));
+  const spoken = ` ${demoScript().map((w) => w.text.replace(PUNCT, "")).join(" ")} `;
+  const joined = new Set<string>();
+  input.paragraphs.forEach((paragraph, i) => {
+    const tokens = paragraph.split(/\s+/).map((t) => t.replace(PUNCT, ""));
+    for (let k = 0; k + 1 < tokens.length; k++) {
+      const pair = `${tokens[k]} ${tokens[k + 1]}`;
+      const glued = `${tokens[k]}${tokens[k + 1]}`;
+      if (whole.has(glued) && !spoken.includes(` ${pair} `)) {
+        edits.push({ para: i + 1, from: pair, to: glued, reason: "orthography", confidence: 0.9 });
+        joined.add(`${i + 1}|${tokens[k]}`).add(`${i + 1}|${tokens[k + 1]}`);
+      }
+    }
+  });
+
   // ١. المواضع المعلّمة
   for (const span of input.evidence) {
     if (span.startMs == null || span.endMs == null) continue;
+    if (joined.has(`${span.para}|${span.text.replace(PUNCT, "")}`)) continue;
     const ref = referenceBetween(span.startMs, span.endMs);
     const heard = span.text.replace(PUNCT, "");
     if (!ref || ref === heard) continue;

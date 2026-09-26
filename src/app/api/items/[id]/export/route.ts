@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { toDocx } from "@/lib/export/docx";
 import { toSrt, toVtt } from "@/lib/export/subtitles";
 import { safeFilename, toMarkdown, toTxt, type ExportMeta } from "@/lib/export/text";
+import { fingerprint, type Enrichment } from "@/lib/enrich/types";
 import { bestText, exportMeta, loadItem, subtitleWords } from "@/lib/items";
 import { unauthorized } from "@/lib/api";
 import { requireApiUser } from "@/lib/session";
@@ -38,7 +39,17 @@ export async function GET(
     return NextResponse.json({ error: "المقطع غير موجود" }, { status: 404 });
   }
 
-  const text = bestText(loaded.stages);
+  const base = bestText(loaded.stages);
+  // النسخة المشكولة: من النصّ الحالي نفسه، وإلا فلا
+  const variant = new URL(request.url).searchParams.get("variant");
+  const tashkeel = ((loaded.item.enrichment ?? {}) as Enrichment).tashkeel;
+  if (variant === "tashkeel" && (tashkeel?.status !== "done" || tashkeel.source !== fingerprint(base))) {
+    return NextResponse.json(
+      { error: "لا نسخة مشكولة من النصّ الحالي — شكّله من صفحة المقطع." },
+      { status: 409 },
+    );
+  }
+  const text = variant === "tashkeel" ? tashkeel!.text! : base;
   if (!text) {
     return NextResponse.json(
       { error: "لا نصّ لهذا المقطع بعد." },
@@ -60,7 +71,10 @@ export async function GET(
   }
 
   // المسودة تُعلَّم في اسم الملف كما في محتواه: لا تختلط بالمعتمد.
-  const filename = safeFilename(meta.draft ? `${meta.title} (مسودة)` : meta.title, extension);
+  const name = [meta.title, variant === "tashkeel" ? "(مشكول)" : "", meta.draft ? "(مسودة)" : ""]
+    .filter(Boolean)
+    .join(" ");
+  const filename = safeFilename(name, extension);
   return new NextResponse(body as BodyInit, {
     headers: {
       "content-type": MIME[format as Format],
@@ -87,7 +101,7 @@ async function render(
     case "vtt": {
       // بطاقات الترجمة تحتاج توقيتات. هي محفوظة في قاعدة البيانات لا
       // في ملف الصوت، فتبقى متاحة بعد حذف الوسائط.
-      const words = subtitleWords(loaded.stages);
+      const words = subtitleWords(loaded.stages, text);
       if (words.length === 0) return { body: null, extension: format };
       return {
         body: format === "srt" ? toSrt(words) : toVtt(words),

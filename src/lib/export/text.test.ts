@@ -67,3 +67,23 @@ describe("safeFilename", () => {
     expect(safeFilename(long, "txt").length).toBeLessThanOrEqual(85);
   });
 });
+
+describe("الملخص في التصدير", () => {
+  const summary = {
+    brief: "خلاصة المقطع.",
+    points: [{ text: "نقطة أولى", paras: [1], startMs: 75_000 }],
+    topics: ["الزراعة"],
+  };
+
+  it("يضع الملخص قبل النصّ في ماركداون", () => {
+    const out = toMarkdown(text, { ...meta, summary });
+    expect(out.indexOf("## الملخص")).toBeLessThan(out.indexOf("الفقرة الأولى"));
+    expect(out).toContain("- نقطة أولى (1:15)");
+  });
+
+  it("يضعه بعد النصّ في النصّ الخام", () => {
+    const out = toTxt(text, { ...meta, summary });
+    expect(out.startsWith("الفقرة الأولى.")).toBe(true);
+    expect(out).toContain("الموضوعات: الزراعة");
+  });
+});

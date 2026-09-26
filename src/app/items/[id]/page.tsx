@@ -16,6 +16,8 @@ import { AutoRefresh } from "@/components/auto-refresh";
 import { ItemActions } from "@/components/item-actions";
 import { TitleSuggestion } from "@/components/title-suggestion";
 import { ExportButtons } from "@/components/export-buttons";
+import { EnrichPanel } from "@/components/enrich-panel";
+import { fingerprint, type Enrichment } from "@/lib/enrich/types";
 import { UnresolvedSpans } from "@/components/unresolved-spans";
 import { hasChanges, wordDiff, type DiffSegment } from "@/lib/transcript/word-diff";
 import { speakersIn, splitParagraphs } from "@/lib/transcript/speakers";
@@ -40,10 +42,14 @@ export default async function ItemPage({
   // الصوت متاح للاستماع ما دام المقطع لم يُعتمد ولم تُحذف وسائطه
   const audio = !approved && !item.mediaDeletedAt && Boolean(item.durationSec);
   const spots = approved ? [] : loaded.unresolved;
+  const enrichment = (item.enrichment ?? {}) as Enrichment;
+  const enriching = [enrichment.summary, enrichment.tashkeel].some(
+    (e) => e?.status === "queued" || e?.status === "running",
+  );
 
   return (
     <div className="space-y-8">
-      <AutoRefresh active={IN_PROGRESS_STATUSES.has(item.status)} />
+      <AutoRefresh active={IN_PROGRESS_STATUSES.has(item.status) || enriching} />
       <header>
         <Link
           href={`/projects/${project.id}`}
@@ -107,7 +113,20 @@ export default async function ItemPage({
               timed={audio ? compactTimed(timedWords(loaded.stages)) : undefined}
             />
 
-            <ExportButtons itemId={item.id} approved={approved} />
+            <EnrichPanel
+              itemId={item.id}
+              enrichment={enrichment}
+              source={fingerprint(text)}
+            />
+
+            <ExportButtons
+              itemId={item.id}
+              approved={approved}
+              tashkeel={
+                enrichment.tashkeel?.status === "done" &&
+                enrichment.tashkeel.source === fingerprint(text)
+              }
+            />
 
             <StageComparison stages={stages} />
 

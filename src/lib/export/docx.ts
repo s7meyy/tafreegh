@@ -7,6 +7,7 @@ import {
   TextRun,
 } from "docx";
 import { clock } from "@/lib/format";
+import type { SummaryData } from "@/lib/enrich/types";
 import { metaLines, type ExportMeta } from "./text";
 
 /**
@@ -54,6 +55,7 @@ export async function toDocx(text: string, meta: ExportMeta): Promise<Buffer> {
               }),
           ),
           new Paragraph({ text: "", bidirectional: true }),
+          ...(meta.summary ? summaryBlock(meta.summary) : []),
           ...paragraphs.map(
             (p) =>
               new Paragraph({
@@ -75,4 +77,35 @@ export async function toDocx(text: string, meta: ExportMeta): Promise<Buffer> {
   });
 
   return Packer.toBuffer(doc);
+}
+
+/** الملخص قبل النصّ: عنوان، فالخلاصة، فالنقاط بتوقيتها، فالموضوعات. */
+function summaryBlock(summary: SummaryData): Paragraph[] {
+  const rtl = { bidirectional: true, alignment: AlignmentType.START } as const;
+  return [
+    new Paragraph({ ...rtl, text: "الملخص", heading: HeadingLevel.HEADING_2 }),
+    new Paragraph({ ...rtl, children: [new TextRun({ text: summary.brief })] }),
+    ...summary.points.map(
+      (p) =>
+        new Paragraph({
+          ...rtl,
+          bullet: { level: 0 },
+          children: [
+            new TextRun({ text: p.text }),
+            ...(p.startMs != null
+              ? [new TextRun({ text: `  ${clock(p.startMs)}`, size: 18, color: "888888" })]
+              : []),
+          ],
+        }),
+    ),
+    ...(summary.topics.length
+      ? [
+          new Paragraph({
+            ...rtl,
+            children: [new TextRun({ text: `الموضوعات: ${summary.topics.join("، ")}`, color: "666666" })],
+          }),
+        ]
+      : []),
+    new Paragraph({ ...rtl, text: "النصّ", heading: HeadingLevel.HEADING_2 }),
+  ];
 }
