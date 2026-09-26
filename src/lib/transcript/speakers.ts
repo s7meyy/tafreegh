@@ -83,7 +83,10 @@ export function speakersIn(text: string): Set<string> {
     const { speaker } = splitSpeaker(p);
     if (speaker) counts.set(speaker, (counts.get(speaker) ?? 0) + 1);
   }
-  return new Set([...counts].filter(([, n]) => n >= 2).map(([s]) => s));
+  // نصّ بأسماء متحدثين (اسمٌ تكرّر) تُقبل فيه كل الأسماء، ولو ظهر
+  // أحدها مرة واحدة — ضيفٌ عابر له مداخلة واحدة.
+  const repeated = [...counts].some(([, n]) => n >= 2);
+  return repeated ? new Set(counts.keys()) : new Set();
 }
 
 export function splitParagraphs(text: string): string[] {

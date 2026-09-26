@@ -59,3 +59,26 @@ body {
 ::selection {
   background: var(--color-brand-soft);
 }
+
+/* الكلمة الجارية في وضع الاستماع. خلفية لا وزن خط: تغيير الوزن يغيّر
+   عرض الكلمة فيتراقص السطر مع كل كلمة. */
+.listen-word {
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 80ms linear;
+}
+.listen-word:hover {
+  background: var(--color-brand-soft);
+}
+.listen-word[data-current] {
+  background: var(--color-brand);
+  color: white;
+}
+.listen-word[data-past] {
+  color: var(--color-ink-soft);
+}
+@media (prefers-reduced-motion: reduce) {
+  .listen-word {
+    transition: none;
+  }
+}

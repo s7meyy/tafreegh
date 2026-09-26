@@ -18,13 +18,27 @@ interface AudioApi {
   playing: string | null;
   play: (key: string, startMs: number, endMs: number) => void;
   stop: () => void;
+  /** التشغيل الكامل: من موضع بعينه بلا نقطة توقف */
+  playFrom: (ms: number) => void;
+  /** الانتقال إلى موضع دون تغيير حال التشغيل */
+  seek: (ms: number) => void;
+  setRate: (rate: number) => void;
+  /** عنصر الصوت نفسه — لمن يتابع الوقت الجاري إطارًا بإطار */
+  element: () => HTMLAudioElement | null;
 }
+
+/** مفتاح التشغيل الكامل في `playing`، تمييزًا له عن تشغيل موضع */
+export const FULL = "full";
 
 const AudioContext = createContext<AudioApi>({
   enabled: false,
   playing: null,
   play: () => {},
   stop: () => {},
+  playFrom: () => {},
+  seek: () => {},
+  setRate: () => {},
+  element: () => null,
 });
 
 export function AudioProvider({
@@ -58,6 +72,29 @@ export function AudioProvider({
     });
   }, []);
 
+  const playFrom = useCallback((ms: number) => {
+    const el = audio.current;
+    if (!el) return;
+    stopAt.current = Infinity;
+    el.currentTime = Math.max(0, ms / 1000);
+    setPlaying(FULL);
+    el.play().catch(() => {
+      setFailed(true);
+      setPlaying(null);
+    });
+  }, []);
+
+  const seek = useCallback((ms: number) => {
+    const el = audio.current;
+    if (el) el.currentTime = Math.max(0, ms / 1000);
+  }, []);
+
+  const setRate = useCallback((rate: number) => {
+    if (audio.current) audio.current.playbackRate = rate;
+  }, []);
+
+  const element = useCallback(() => audio.current, []);
+
   useEffect(() => {
     const el = audio.current;
     if (!el) return;
@@ -73,7 +110,9 @@ export function AudioProvider({
   }, [stop]);
 
   return (
-    <AudioContext.Provider value={{ enabled: enabled && !failed, playing, play, stop }}>
+    <AudioContext.Provider
+      value={{ enabled: enabled && !failed, playing, play, stop, playFrom, seek, setRate, element }}
+    >
       {enabled && <audio ref={audio} src={`/api/items/${itemId}/audio`} preload="none" />}
       {failed && (
         <p role="status" className="rounded-lg bg-brand-soft px-4 py-2 text-sm">

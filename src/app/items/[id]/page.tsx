@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { bestText, loadItem, stageTexts } from "@/lib/items";
+import { bestText, loadItem, stageTexts, timedWords } from "@/lib/items";
 import { clock, formatDate, formatDuration } from "@/lib/format";
 import {
   editReasonLabel,
@@ -104,6 +104,7 @@ export default async function ItemPage({
               approved={approved}
               approvedAt={item.approvedAt ? formatDate(item.approvedAt) : null}
               spotIds={spots.map((s, i) => s.id ?? i + 1)}
+              timed={audio ? compactTimed(timedWords(loaded.stages)) : undefined}
             />
 
             <ExportButtons itemId={item.id} approved={approved} />
@@ -200,6 +201,14 @@ function DiffView({ segments }: { segments: DiffSegment[] }) {
       })}
     </p>
   );
+}
+
+/**
+ * الكلمات الموقّتة للمتصفح بلا حقول لا يحتاجها (الثقة والمتحدث): ساعتان
+ * من الكلام نحو عشرين ألف كلمة، فكل حقل زائد يثقل الصفحة.
+ */
+function compactTimed(words: ReturnType<typeof timedWords>) {
+  return words.map((w) => ({ text: w.text, startMs: w.startMs, endMs: w.endMs }));
 }
 
 const STEPS = [

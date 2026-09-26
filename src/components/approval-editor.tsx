@@ -2,6 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import type { Word } from "@/lib/transcript/types";
+import { useSpotAudio } from "./audio-spots";
+import { ListenView } from "./listen-view";
 import {
   clearSpots,
   LOCATE_EVENT,
@@ -21,6 +24,7 @@ export function ApprovalEditor({
   approved,
   approvedAt,
   spotIds = [],
+  timed,
 }: {
   itemId: string;
   initialText: string;
@@ -28,9 +32,14 @@ export function ApprovalEditor({
   approvedAt: string | null;
   /** أرقام المواضع المشكوك فيها — لتنبيه الاعتماد بما بقي منها */
   spotIds?: number[];
+  /** كلمات التفريغ بتوقيتها — تُفعّل وضع الاستماع ما دام الصوت متاحًا */
+  timed?: Word[];
 }) {
   const router = useRouter();
   const [text, setText] = useState(initialText);
+  const [mode, setMode] = useState<"edit" | "listen">("edit");
+  const { enabled: audioReady } = useSpotAudio();
+  const canListen = audioReady && Boolean(timed?.length);
   const area = useRef<HTMLTextAreaElement>(null);
   const resolved = useResolvedSpots(itemId);
   const openSpots = spotIds.filter((id) => !resolved.has(id)).length;
@@ -41,6 +50,7 @@ export function ApprovalEditor({
     if (approved) return;
     const onLocate = (event: Event) => {
       const request = (event as CustomEvent<LocateRequest>).detail;
+      setMode("edit");
       setText((current) => {
         const hit = findSpot(current, request);
         if (!hit) return current;
@@ -168,17 +178,57 @@ export function ApprovalEditor({
         </p>
       )}
 
-      <label htmlFor="transcript" className="sr-only">
-        نصّ التفريغ
-      </label>
-      <textarea
-        ref={area}
-        id="transcript"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        rows={18}
-        className="w-full rounded-xl border border-line bg-panel p-5 leading-loose outline-none focus:border-brand"
-      />
+      {canListen && (
+        <div role="tablist" aria-label="طريقة المراجعة" className="flex gap-2">
+          {(
+            [
+              ["edit", "تحرير"],
+              ["listen", "استماع مع النصّ"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              role="tab"
+              type="button"
+              aria-selected={mode === key}
+              onClick={() => setMode(key)}
+              className={`min-h-11 rounded-lg px-4 ${
+                mode === key ? "bg-brand-soft font-medium text-ink" : "text-ink-soft hover:bg-brand-soft"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {canListen && mode === "listen" ? (
+        <ListenView
+          text={text}
+          timed={timed!}
+          onEditAt={(start, end) => {
+            setMode("edit");
+            // بعد أن يُرسم المحرّر
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => select(area.current, start, end, text.length)),
+            );
+          }}
+        />
+      ) : (
+        <>
+          <label htmlFor="transcript" className="sr-only">
+            نصّ التفريغ
+          </label>
+          <textarea
+            ref={area}
+            id="transcript"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={18}
+            className="w-full rounded-xl border border-line bg-panel p-5 leading-loose outline-none focus:border-brand"
+          />
+        </>
+      )}
 
       {error && (
         <p role="alert" className="text-sm text-danger">
